@@ -32,3 +32,13 @@ def test_segment_series_finds_step():
     x = np.r_[np.full(30, -8.0), np.full(30, -4.0)] + np.random.default_rng(0).normal(0, 0.2, 60)
     s = segment_series(x, pen=20.0)
     assert s[:30].max() == 0 and s[30:].min() == 1 and s.max() == 1
+
+
+def test_manoeuvres_detects_ramp_and_delta():
+    from yaw.estimators import manoeuvres
+    ts = pd.date_range("2023-01-01", periods=12, freq="12s")
+    nac = [100.0] * 3 + [104.0, 108.0, 112.0] + [112.0] * 6
+    upd = [True, False, False, True, True, True, False, False, False, False, False, False]
+    df = pd.DataFrame({"ts": ts, "NacDir": nac, "nac_update": upd})
+    r = manoeuvres(df)
+    assert len(r) == 1 and abs(r.delta.iloc[0] - 12.0) < 1e-9 and r.n_updates.iloc[0] == 3

@@ -20,6 +20,7 @@ uv pip install --python .venv/bin/python <pkgs> # e.g. pandas pyarrow polars sci
 .venv/bin/python -m pytest -q                   # unit tests (pyproject sets pythonpath=src)
 .venv/bin/python scripts/build_cache.py         # step 1: rebuild cache/ (~1 min, 8 workers)
 .venv/bin/python scripts/segment_states.py      # step 2: de-stepping + SCADA states (~3 min)
+.venv/bin/python scripts/estimate_angles.py     # step 3: C1/C2/C4 per-window estimates (~5 min); figure via scripts/plot_03_estimators.py
 .venv/bin/jupyter notebook notebooks/read_croissant_data.ipynb   # kernel "download (.venv)"
 ```
 
@@ -75,7 +76,9 @@ Rules that are easy to get wrong:
 aggregates in `cache/agg1min`, `cache/agg10min`, `cache/daily`,
 `cache/labels_daily.parquet` (states + `scored` flag) and
 `cache/pair_offsets_daily.parquet`, `cache/states_scada.parquet` (SCADA-only states,
-`transition`, `boundary_type`) and `cache/encoder_steps.parquet`; schemas in docs/01 and docs/02.
+`transition`, `boundary_type`), `cache/encoder_steps.parquet`, `cache/state_estimates.parquet` and
+`cache/manoeuvre_events/` (step 3 physics estimates — features only, see docs/03); schemas in docs/01–03.
+Every figure in `figures/` must be produced by a script in `scripts/` named in its doc.
 
 ## Machine
 

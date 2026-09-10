@@ -1,6 +1,6 @@
 # Step 2 — Encoder de-stepping and SCADA-only state segmentation
 
-*2026-09-11. Code: `src/yaw/consensus.py`, `scripts/segment_states.py` (≈ 3 min). Figure: `figures/02_states.png`.*
+*2026-09-11. Code: `src/yaw/consensus.py`, `scripts/segment_states.py` (≈ 3 min). Figures `figures/02_residuals.png`, `figures/02_states.png` from `scripts/plot_02_states.py`.*
 
 ## Idea
 

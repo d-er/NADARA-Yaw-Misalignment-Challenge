@@ -1,6 +1,6 @@
 # Step 1 — Data preparation and cleaning
 
-*2026-09-11. Code: `src/yaw/{io,aggregate,quality,labels,geometry}.py`, `scripts/build_cache.py`. Run time ≈ 1 min on 8 workers.*
+*2026-09-11. Code: `src/yaw/{io,aggregate,quality,labels,geometry}.py`, `scripts/build_cache.py`. Run time ≈ 1 min on 8 workers. Figures `figures/01_*.png` from `scripts/plot_01_data.py`.*
 
 ## What was built
 
