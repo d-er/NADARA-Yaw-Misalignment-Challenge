@@ -1,0 +1,903 @@
+{
+  "@context": {
+    "@language": "en",
+    "@vocab": "https://schema.org/",
+    "citeAs": "cr:citeAs",
+    "column": "cr:column",
+    "conformsTo": "dct:conformsTo",
+    "cr": "http://mlcommons.org/croissant/",
+    "data": {
+      "@id": "cr:data",
+      "@type": "@json"
+    },
+    "dataType": {
+      "@id": "cr:dataType",
+      "@type": "@vocab"
+    },
+    "dct": "http://purl.org/dc/terms/",
+    "examples": {
+      "@id": "cr:examples",
+      "@type": "@json"
+    },
+    "extract": "cr:extract",
+    "field": "cr:field",
+    "fileProperty": "cr:fileProperty",
+    "fileObject": "cr:fileObject",
+    "fileSet": "cr:fileSet",
+    "format": "cr:format",
+    "includes": "cr:includes",
+    "isLiveDataset": "cr:isLiveDataset",
+    "jsonPath": "cr:jsonPath",
+    "key": "cr:key",
+    "md5": "cr:md5",
+    "parentField": "cr:parentField",
+    "path": "cr:path",
+    "recordSet": "cr:recordSet",
+    "references": "cr:references",
+    "regex": "cr:regex",
+    "repeated": "cr:repeated",
+    "replace": "cr:replace",
+    "samplingRate": "cr:samplingRate",
+    "sc": "https://schema.org/",
+    "separator": "cr:separator",
+    "source": "cr:source",
+    "subField": "cr:subField",
+    "transform": "cr:transform",
+    "rai": "http://mlcommons.org/croissant/RAI/",
+    "oeo": "http://openenergy-platform.org/ontology/oeo/",
+    "qudt": "http://qudt.org/vocab/unit/",
+    "unit": {
+      "@id": "sc:unit",
+      "@type": "@id"
+    }
+  },
+  "@type": "sc:Dataset",
+  "name": "Nadara_Yaw_Misalignment_Fleet_Challenge",
+  "description": "Static yaw misalignment challenge dataset. High-resolution SCADA (roughly 12-second resolution) from anonymised Nadara wind turbines, 2023-01-01 to 2024-12-31. A null value means the signal had not changed since the previous update, not that it is missing; forward fill to reconstruct. Power, wind speed, generator speed, rotor speed and pitch angle each carry an undisclosed constant scale factor applied identically to every turbine, so relationships within and between turbines are preserved while absolute values are not physical. Wind and nacelle directions are unscaled. Turbines sit in complex terrain at differing hub heights, so persistent wind speed differences between them are genuine. Split into a labelled training set, an unlabelled public validation set and a set of unlabelled neighbouring turbines. The prediction target is the daily WindFit yaw misalignment value per turbine-day.",
+  "citeAs": "Nadara (2026). Nadara Yaw Misalignment Fleet Challenge Dataset. https://doi.org/10.TODO/PENDING",
+  "conformsTo": "http://mlcommons.org/croissant/1.1",
+  "license": "https://creativecommons.org/licenses/by/4.0/",
+  "datePublished": "2026-08-31",
+  "version": "2.0.0",
+  "creator": [
+    {
+      "@type": "sc:Organization",
+      "name": "Nadara"
+    }
+  ],
+  "publisher": {
+    "@type": "sc:Organization",
+    "name": "Nadara"
+  },
+  "contributor": {
+    "@type": "sc:Person",
+    "givenName": "Yuriy",
+    "familyName": "Marykovskiy",
+    "jobTitle": "Data Curator",
+    "identifier": "https://orcid.org/0000-0002-6570-6966",
+    "sameAs": "https://orcid.org/0000-0002-6570-6966"
+  },
+  "keywords": [
+    "Wind Energy",
+    "Yaw Misalignment",
+    "SCADA",
+    "Wind Turbine",
+    "Machine Learning",
+    "Anomaly Detection",
+    "Fleet Analytics"
+  ],
+  "distribution": [
+    {
+      "@type": "cr:FileObject",
+      "@id": "train_file",
+      "name": "train_file",
+      "description": "Labelled training split. Every day of the two-year window is present, including days with no WindFit measurement, so a method may use the full history rather than only the days carrying ground truth.",
+      "contentUrl": "data/train.parquet",
+      "encodingFormat": "application/x-parquet",
+      "sha256": "c8b9691dc4e3a40fc170013247ec583e5e4352dba8d6e43065d00a321c71d687"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "validate_file",
+      "name": "validate_file",
+      "description": "Public leaderboard split. Labels withheld. Predictions are submitted per turbine-day.",
+      "contentUrl": "data/validate.parquet",
+      "encodingFormat": "application/x-parquet",
+      "sha256": "100ba5e4a7b9dd664c4578a9b5ddbb966cc01224ae0a4437d4d2e70b12e8d479"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "test_file",
+      "name": "test_file",
+      "description": "Held-out split for the final round. Labels are withheld and scored once, at the deadline. The SCADA itself is published so that unsupervised and transductive methods can use it.",
+      "contentUrl": "data/test.parquet",
+      "encodingFormat": "application/x-parquet",
+      "sha256": "352d8352de320f26c8a12945a9d35713015abab1f47f93bfa289a92935726cae"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "context_file",
+      "name": "context_file",
+      "description": "Neighbouring turbines with no WindFit history, provided so that methods relying on comparison against nearby turbines can be applied to the labelled and held-out splits.",
+      "contentUrl": "data/context.parquet",
+      "encodingFormat": "application/x-parquet",
+      "sha256": "a5ce3241aaad57134611422b6fd32d936ecbeeda59829c985111f0e764bc010b"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "turbine_locations_ppp_file",
+      "name": "turbine_locations_ppp_file",
+      "description": "Turbine layout for site PPP, one row per turbine whose SCADA is published. Turbines at the site without published data are omitted, since a complete farm layout would make the site identifiable. Coordinates are metres from an arbitrary origin, different for each site, and the whole layout carries a constant scale factor. The same factor is applied to both axes, so distances are proportional and bearings between turbines are exact.",
+      "contentUrl": "data/turbine_locations_PPP.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "c8b5e34cca3aa52a7d080b24368250ea453b83cbf4335de59947b88b4da53d3c"
+    },
+    {
+      "@type": "cr:FileObject",
+      "@id": "turbine_locations_sss_file",
+      "name": "turbine_locations_sss_file",
+      "description": "Turbine layout for site SSS, one row per turbine whose SCADA is published. Turbines at the site without published data are omitted, since a complete farm layout would make the site identifiable. Coordinates are metres from an arbitrary origin, different for each site, and the whole layout carries a constant scale factor. The same factor is applied to both axes, so distances are proportional and bearings between turbines are exact.",
+      "contentUrl": "data/turbine_locations_SSS.csv",
+      "encodingFormat": "text/csv",
+      "sha256": "015abd996f4d4623437cd577dbdc4c356e819af42813d68596b9e1323e304dc9"
+    }
+  ],
+  "recordSet": [
+    {
+      "@type": "cr:RecordSet",
+      "@id": "train",
+      "name": "train split",
+      "description": "High-resolution SCADA (roughly 12-second resolution) from anonymised Nadara wind turbines, 2023-01-01 to 2024-12-31. A null value means the signal had not changed since the previous update, not that it is missing; forward fill to reconstruct. Power, wind speed, generator speed, rotor speed and pitch angle each carry an undisclosed constant scale factor applied identically to every turbine, so relationships within and between turbines are preserved while absolute values are not physical. Wind and nacelle directions are unscaled. Turbines sit in complex terrain at differing hub heights, so persistent wind speed differences between them are genuine. Turbines: PPP_WTG12, PPP_WTG13, PPP_WTG14. Labelled training split. Every day of the two-year window is present, including days with no WindFit measurement, so a method may use the full history rather than only the days carrying ground truth.",
+      "field": [
+        {
+          "@type": "cr:Field",
+          "@id": "train/turbine_id",
+          "name": "train/turbine_id",
+          "description": "Anonymised turbine identifier (PPP_WTGxx or SSS_WTGxx). The prefix is the wind farm, the suffix the turbine within it.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "turbine_id"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/ts",
+          "name": "train/ts",
+          "description": "Measurement timestamp.",
+          "dataType": "sc:DateTime",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "ts"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/GenSpeed",
+          "name": "train/GenSpeed",
+          "description": "Generator speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:REV-PER-MIN",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "GenSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/NacDir",
+          "name": "train/NacDir",
+          "description": "Nacelle position, degrees clockwise from north. Not rescaled. Encoder readings can drift, since the turbine has no true-north reference.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "NacDir"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/WindSpeed",
+          "name": "train/WindSpeed",
+          "description": "Nacelle anemometer wind speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:M-PER-SEC",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "WindSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/WindDir",
+          "name": "train/WindDir",
+          "description": "Wind direction, degrees clockwise from north. Not rescaled. Vane angle relative to the nacelle is not supplied; derive it as WindDir - NacDir wrapped to +/-180 degrees.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "WindDir"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/PitchAngle",
+          "name": "train/PitchAngle",
+          "description": "Blade pitch angle. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "PitchAngle"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/RotSpeed",
+          "name": "train/RotSpeed",
+          "description": "Rotor speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:REV-PER-MIN",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "RotSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/Power",
+          "name": "train/Power",
+          "description": "Active power. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:KiloW",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "Power"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "train/yaw_misalignment_deg",
+          "name": "train/yaw_misalignment_deg",
+          "description": "WindFit static yaw misalignment for the day this row falls in, in degrees, repeated across every row of that day. Null where no measurement exists. The series is a smoothed daily estimate: consecutive days move very little, and it drifts for roughly a week before each step change.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "train_file"
+            },
+            "extract": {
+              "column": "yaw_misalignment_deg"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "@type": "cr:RecordSet",
+      "@id": "validate",
+      "name": "validate split",
+      "description": "High-resolution SCADA (roughly 12-second resolution) from anonymised Nadara wind turbines, 2023-01-01 to 2024-12-31. A null value means the signal had not changed since the previous update, not that it is missing; forward fill to reconstruct. Power, wind speed, generator speed, rotor speed and pitch angle each carry an undisclosed constant scale factor applied identically to every turbine, so relationships within and between turbines are preserved while absolute values are not physical. Wind and nacelle directions are unscaled. Turbines sit in complex terrain at differing hub heights, so persistent wind speed differences between them are genuine. Turbines: PPP_WTG17. Public leaderboard split. Labels withheld. Predictions are submitted per turbine-day.",
+      "field": [
+        {
+          "@type": "cr:Field",
+          "@id": "validate/turbine_id",
+          "name": "validate/turbine_id",
+          "description": "Anonymised turbine identifier (PPP_WTGxx or SSS_WTGxx). The prefix is the wind farm, the suffix the turbine within it.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "turbine_id"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "validate/ts",
+          "name": "validate/ts",
+          "description": "Measurement timestamp.",
+          "dataType": "sc:DateTime",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "ts"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "validate/GenSpeed",
+          "name": "validate/GenSpeed",
+          "description": "Generator speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:REV-PER-MIN",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "GenSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "validate/NacDir",
+          "name": "validate/NacDir",
+          "description": "Nacelle position, degrees clockwise from north. Not rescaled. Encoder readings can drift, since the turbine has no true-north reference.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "NacDir"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "validate/WindSpeed",
+          "name": "validate/WindSpeed",
+          "description": "Nacelle anemometer wind speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:M-PER-SEC",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "WindSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "validate/WindDir",
+          "name": "validate/WindDir",
+          "description": "Wind direction, degrees clockwise from north. Not rescaled. Vane angle relative to the nacelle is not supplied; derive it as WindDir - NacDir wrapped to +/-180 degrees.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "WindDir"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "validate/PitchAngle",
+          "name": "validate/PitchAngle",
+          "description": "Blade pitch angle. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "PitchAngle"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "validate/RotSpeed",
+          "name": "validate/RotSpeed",
+          "description": "Rotor speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:REV-PER-MIN",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "RotSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "validate/Power",
+          "name": "validate/Power",
+          "description": "Active power. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:KiloW",
+          "source": {
+            "fileObject": {
+              "@id": "validate_file"
+            },
+            "extract": {
+              "column": "Power"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "@type": "cr:RecordSet",
+      "@id": "test",
+      "name": "test split",
+      "description": "High-resolution SCADA (roughly 12-second resolution) from anonymised Nadara wind turbines, 2023-01-01 to 2024-12-31. A null value means the signal had not changed since the previous update, not that it is missing; forward fill to reconstruct. Power, wind speed, generator speed, rotor speed and pitch angle each carry an undisclosed constant scale factor applied identically to every turbine, so relationships within and between turbines are preserved while absolute values are not physical. Wind and nacelle directions are unscaled. Turbines sit in complex terrain at differing hub heights, so persistent wind speed differences between them are genuine. Turbines: SSS_WTG06. Held-out split for the final round. Labels are withheld and scored once, at the deadline. The SCADA itself is published so that unsupervised and transductive methods can use it.",
+      "field": [
+        {
+          "@type": "cr:Field",
+          "@id": "test/turbine_id",
+          "name": "test/turbine_id",
+          "description": "Anonymised turbine identifier (PPP_WTGxx or SSS_WTGxx). The prefix is the wind farm, the suffix the turbine within it.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "turbine_id"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "test/ts",
+          "name": "test/ts",
+          "description": "Measurement timestamp.",
+          "dataType": "sc:DateTime",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "ts"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "test/GenSpeed",
+          "name": "test/GenSpeed",
+          "description": "Generator speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:REV-PER-MIN",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "GenSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "test/NacDir",
+          "name": "test/NacDir",
+          "description": "Nacelle position, degrees clockwise from north. Not rescaled. Encoder readings can drift, since the turbine has no true-north reference.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "NacDir"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "test/WindSpeed",
+          "name": "test/WindSpeed",
+          "description": "Nacelle anemometer wind speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:M-PER-SEC",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "WindSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "test/WindDir",
+          "name": "test/WindDir",
+          "description": "Wind direction, degrees clockwise from north. Not rescaled. Vane angle relative to the nacelle is not supplied; derive it as WindDir - NacDir wrapped to +/-180 degrees.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "WindDir"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "test/PitchAngle",
+          "name": "test/PitchAngle",
+          "description": "Blade pitch angle. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "PitchAngle"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "test/RotSpeed",
+          "name": "test/RotSpeed",
+          "description": "Rotor speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:REV-PER-MIN",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "RotSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "test/Power",
+          "name": "test/Power",
+          "description": "Active power. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:KiloW",
+          "source": {
+            "fileObject": {
+              "@id": "test_file"
+            },
+            "extract": {
+              "column": "Power"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "@type": "cr:RecordSet",
+      "@id": "context",
+      "name": "context split",
+      "description": "High-resolution SCADA (roughly 12-second resolution) from anonymised Nadara wind turbines, 2023-01-01 to 2024-12-31. A null value means the signal had not changed since the previous update, not that it is missing; forward fill to reconstruct. Power, wind speed, generator speed, rotor speed and pitch angle each carry an undisclosed constant scale factor applied identically to every turbine, so relationships within and between turbines are preserved while absolute values are not physical. Wind and nacelle directions are unscaled. Turbines sit in complex terrain at differing hub heights, so persistent wind speed differences between them are genuine. Turbines: PPP_WTG07, PPP_WTG08, PPP_WTG11, PPP_WTG15, PPP_WTG16, PPP_WTG18, PPP_WTG33, SSS_WTG04, SSS_WTG05, SSS_WTG07, SSS_WTG16. Neighbouring turbines with no WindFit history, provided so that methods relying on comparison against nearby turbines can be applied to the labelled and held-out splits.",
+      "field": [
+        {
+          "@type": "cr:Field",
+          "@id": "context/turbine_id",
+          "name": "context/turbine_id",
+          "description": "Anonymised turbine identifier (PPP_WTGxx or SSS_WTGxx). The prefix is the wind farm, the suffix the turbine within it.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "turbine_id"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "context/ts",
+          "name": "context/ts",
+          "description": "Measurement timestamp.",
+          "dataType": "sc:DateTime",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "ts"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "context/GenSpeed",
+          "name": "context/GenSpeed",
+          "description": "Generator speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:REV-PER-MIN",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "GenSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "context/NacDir",
+          "name": "context/NacDir",
+          "description": "Nacelle position, degrees clockwise from north. Not rescaled. Encoder readings can drift, since the turbine has no true-north reference.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "NacDir"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "context/WindSpeed",
+          "name": "context/WindSpeed",
+          "description": "Nacelle anemometer wind speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:M-PER-SEC",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "WindSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "context/WindDir",
+          "name": "context/WindDir",
+          "description": "Wind direction, degrees clockwise from north. Not rescaled. Vane angle relative to the nacelle is not supplied; derive it as WindDir - NacDir wrapped to +/-180 degrees.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "WindDir"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "context/PitchAngle",
+          "name": "context/PitchAngle",
+          "description": "Blade pitch angle. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:DEG",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "PitchAngle"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "context/RotSpeed",
+          "name": "context/RotSpeed",
+          "description": "Rotor speed. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:REV-PER-MIN",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "RotSpeed"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "context/Power",
+          "name": "context/Power",
+          "description": "Active power. Rescaled by an undisclosed constant factor, the same for every turbine.",
+          "dataType": "sc:Float",
+          "unit": "qudt:KiloW",
+          "source": {
+            "fileObject": {
+              "@id": "context_file"
+            },
+            "extract": {
+              "column": "Power"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "@type": "cr:RecordSet",
+      "@id": "turbine_locations_ppp",
+      "name": "turbine locations, site PPP",
+      "description": "Turbine layout for site PPP, one row per turbine whose SCADA is published. Turbines at the site without published data are omitted, since a complete farm layout would make the site identifiable. Coordinates are metres from an arbitrary origin, different for each site, and the whole layout carries a constant scale factor. The same factor is applied to both axes, so distances are proportional and bearings between turbines are exact.",
+      "field": [
+        {
+          "@type": "cr:Field",
+          "@id": "turbine_locations_ppp/turbine_id",
+          "name": "turbine_locations_ppp/turbine_id",
+          "description": "Anonymised turbine identifier. The prefix is the wind farm.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "turbine_locations_ppp_file"
+            },
+            "extract": {
+              "column": "turbine_id"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "turbine_locations_ppp/role",
+          "name": "turbine_locations_ppp/role",
+          "description": "Split this turbine belongs to: train, validate, test or context.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "turbine_locations_ppp_file"
+            },
+            "extract": {
+              "column": "role"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "turbine_locations_ppp/x_m",
+          "name": "turbine_locations_ppp/x_m",
+          "description": "Easting, metres east of the site origin.",
+          "dataType": "sc:Float",
+          "unit": "qudt:M",
+          "source": {
+            "fileObject": {
+              "@id": "turbine_locations_ppp_file"
+            },
+            "extract": {
+              "column": "x_m"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "turbine_locations_ppp/y_m",
+          "name": "turbine_locations_ppp/y_m",
+          "description": "Northing, metres north of the site origin.",
+          "dataType": "sc:Float",
+          "unit": "qudt:M",
+          "source": {
+            "fileObject": {
+              "@id": "turbine_locations_ppp_file"
+            },
+            "extract": {
+              "column": "y_m"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "@type": "cr:RecordSet",
+      "@id": "turbine_locations_sss",
+      "name": "turbine locations, site SSS",
+      "description": "Turbine layout for site SSS, one row per turbine whose SCADA is published. Turbines at the site without published data are omitted, since a complete farm layout would make the site identifiable. Coordinates are metres from an arbitrary origin, different for each site, and the whole layout carries a constant scale factor. The same factor is applied to both axes, so distances are proportional and bearings between turbines are exact.",
+      "field": [
+        {
+          "@type": "cr:Field",
+          "@id": "turbine_locations_sss/turbine_id",
+          "name": "turbine_locations_sss/turbine_id",
+          "description": "Anonymised turbine identifier. The prefix is the wind farm.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "turbine_locations_sss_file"
+            },
+            "extract": {
+              "column": "turbine_id"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "turbine_locations_sss/role",
+          "name": "turbine_locations_sss/role",
+          "description": "Split this turbine belongs to: train, validate, test or context.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "turbine_locations_sss_file"
+            },
+            "extract": {
+              "column": "role"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "turbine_locations_sss/x_m",
+          "name": "turbine_locations_sss/x_m",
+          "description": "Easting, metres east of the site origin.",
+          "dataType": "sc:Float",
+          "unit": "qudt:M",
+          "source": {
+            "fileObject": {
+              "@id": "turbine_locations_sss_file"
+            },
+            "extract": {
+              "column": "x_m"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "turbine_locations_sss/y_m",
+          "name": "turbine_locations_sss/y_m",
+          "description": "Northing, metres north of the site origin.",
+          "dataType": "sc:Float",
+          "unit": "qudt:M",
+          "source": {
+            "fileObject": {
+              "@id": "turbine_locations_sss_file"
+            },
+            "extract": {
+              "column": "y_m"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
