@@ -28,3 +28,4 @@ uv pip install --python .venv/bin/python pandas pyarrow polars scipy ruptures sc
 
 ## Lab log
 1. [Data preparation and cleaning](docs/01_data_preparation.md)
+2. [Encoder de-stepping and state segmentation](docs/02_segmentation.md)

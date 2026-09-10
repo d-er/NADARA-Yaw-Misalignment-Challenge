@@ -19,6 +19,7 @@ uv venv .venv                                   # once
 uv pip install --python .venv/bin/python <pkgs> # e.g. pandas pyarrow polars scipy ruptures
 .venv/bin/python -m pytest -q                   # unit tests (pyproject sets pythonpath=src)
 .venv/bin/python scripts/build_cache.py         # step 1: rebuild cache/ (~1 min, 8 workers)
+.venv/bin/python scripts/segment_states.py      # step 2: de-stepping + SCADA states (~3 min)
 .venv/bin/jupyter notebook notebooks/read_croissant_data.ipynb   # kernel "download (.venv)"
 ```
 
