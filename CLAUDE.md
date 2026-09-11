@@ -21,6 +21,7 @@ uv pip install --python .venv/bin/python <pkgs> # e.g. pandas pyarrow polars sci
 .venv/bin/python scripts/build_cache.py         # step 1: rebuild cache/ (~1 min, 8 workers)
 .venv/bin/python scripts/segment_states.py      # step 2: de-stepping + SCADA states (~3 min)
 .venv/bin/python scripts/estimate_angles.py     # step 3: C1/C2/C4 per-window estimates (~5 min); figure via scripts/plot_03_estimators.py
+.venv/bin/python scripts/build_submission.py --participant <ID>   # step 4: submissions/*.csv + validator (~10 s); figure via scripts/plot_04_submission.py
 .venv/bin/jupyter notebook notebooks/read_croissant_data.ipynb   # kernel "download (.venv)"
 ```
 

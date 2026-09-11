@@ -42,3 +42,19 @@ def test_manoeuvres_detects_ramp_and_delta():
     df = pd.DataFrame({"ts": ts, "NacDir": nac, "nac_update": upd})
     r = manoeuvres(df)
     assert len(r) == 1 and abs(r.delta.iloc[0] - 12.0) < 1e-9 and r.n_updates.iloc[0] == 3
+
+
+def test_submission_features_reanchor_at_encoder_boundary():
+    from yaw.submission import features, predict
+    dates = pd.date_range("2023-01-01", periods=6)
+    st = pd.DataFrame({
+        "turbine_id": "a", "date": dates, "state": [0, 0, 1, 1, 2, 2], "r": 0.0, "r_smooth": 0.0,
+        "r_level": [4.0, 4.0, 0.0, 0.0, 30.0, 30.0], "transition": False,
+        "boundary_type": ["", "", "candidate", "candidate", "encoder", "encoder"],
+    })
+    f = features(st, anchor="mean")
+    assert f.seg.tolist() == [0, 0, 0, 0, 1, 1]
+    assert np.allclose(f.x.tolist(), [2, 2, -2, -2, 0, 0])      # segment 1 re-anchored, jump of 30 not propagated
+    p = predict(f, pd.Series({"a": -3.0}), a=0.0, b=-1.0)
+    assert np.allclose(p.yaw_misalignment_deg.tolist(), [-5, -5, -1, -1, -3, -3])  # dtheta = -dr
+    assert p.cluster.tolist() == [0, 0, 1, 1, 2, 2]

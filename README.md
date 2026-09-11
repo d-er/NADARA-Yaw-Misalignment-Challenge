@@ -15,6 +15,8 @@ scripts/         one CLI per pipeline step (01 build_cache, ...)
 docs/            lab log, one markdown file per step, with figures in figures/
 notebooks/       exploration only; nothing downstream depends on them
 tests/           pytest unit tests for the reconstruction rules
+submission_kit/  validator + round templates copied from the WeDoWind Submissions repo
+submissions/     generated Results_<ID>_<tier>_<n|final>.csv (step 4)
 ```
 
 ## Setup and run
@@ -29,3 +31,5 @@ uv pip install --python .venv/bin/python pandas pyarrow polars scipy ruptures sc
 ## Lab log
 1. [Data preparation and cleaning](docs/01_data_preparation.md)
 2. [Encoder de-stepping and state segmentation](docs/02_segmentation.md)
+3. [Per-window angle estimators (negative result)](docs/03_estimators.md)
+4. [Submission builder](docs/04_submission.md)
