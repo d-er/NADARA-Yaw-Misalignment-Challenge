@@ -412,14 +412,17 @@ $\cos^2(-5\dg)/\cos^2(15\dg)=1.06$. This asymmetric pattern (large gain after
 $-20\dg$, little after $+20\dg$) is what \texttt{PPP\_WTG17} shows in 2023.
 
 \begin{remark}[Sign in the implementation]
-\texttt{manoeuvre\_fit} returns $\theta = \arctan(-\hat\beta_1/(kf))$, i.e.\ with
-the opposite sign to \eqref{eq:c4_theta}. Under the conventions of
-\S\ref{sec:sensor} (both \texttt{NacDir} and \texttt{WindDir} clockwise
-bearings, $\Delta$ = after minus before) the derivation above gives the positive
-sign. The stored C4 levels in \texttt{cache/state\_estimates.parquet} should be
-read with their sign flipped; this does not rescue C4 (see \S\ref{sec:c4_fail})
-but it changes the statement in \texttt{docs/03} that C4 ``disagrees in sign''
-with the consensus residual on \texttt{PPP\_WTG17}.
+An earlier version of \texttt{manoeuvre\_fit} returned
+$\theta = \arctan(-\hat\beta_1/(kf))$, the opposite sign to \eqref{eq:c4_theta}.
+Under the conventions of \S\ref{sec:sensor} (both \texttt{NacDir} and
+\texttt{WindDir} clockwise bearings, $\Delta$ = after minus before) the
+derivation above gives the positive sign; the code, the stored C4 levels in
+\texttt{cache/state\_estimates.parquet}, figure 03 and \texttt{docs/03} were
+corrected on 2026-09-11. With the right sign C4 gives $+1.5$, $-0.4$, $-3.1\dg$
+on \texttt{PPP\_WTG12/13/14} (labels $-2$, $-8$, $-2$) and its 2023 $\to$ 2024
+change on \texttt{PPP\_WTG17} is $\approx +5\dg$, the same sign as the
+consensus residual's $\Delta\theta = -\Delta r \approx +8\dg$. This does not
+rescue C4 as a level estimator (\S\ref{sec:c4_fail}).
 \end{remark}
 
 \subsection{Estimation}

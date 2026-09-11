@@ -174,7 +174,8 @@ def manoeuvre_events(runs: pd.DataFrame, m: pd.DataFrame, before=(-6, -2), after
 
 def manoeuvre_fit(ev: pd.DataFrame, k: float = K_FIXED, f: float = 1.0, delta_max: float = 20.0,
                   n_boot: int = 200, seed: int = 0) -> dict:
-    """Robust slope of lnR vs Δ and the implied θ = atan(−slope / (k f)) in physical degrees."""
+    """Robust slope of lnR vs Δ and the implied θ = atan(slope / (k f)) in physical degrees
+    (docs/estimators_theory.tex, Prop. C4: β1 = k f tanθ with Δ = after − before, clockwise positive)."""
     e = ev[ev.delta.abs() <= delta_max]
     if len(e) < 50:
         return {"slope": np.nan, "slope_se": np.nan, "theta": np.nan, "theta_se": np.nan, "n": len(e)}
@@ -186,6 +187,6 @@ def manoeuvre_fit(ev: pd.DataFrame, k: float = K_FIXED, f: float = 1.0, delta_ma
         i = rng.integers(0, len(e), len(e))
         bs.append(HuberRegressor().fit(X[i], y[i]).coef_[0])
     se = float(np.std(bs))
-    th = lambda s: np.degrees(np.arctan(-s * 180 / np.pi / (k * f)))   # slope per degree → per radian
+    th = lambda s: np.degrees(np.arctan(s * 180 / np.pi / (k * f)))   # slope per degree → per radian
     return {"slope": float(slope), "slope_se": se, "theta": float(th(slope)),
             "theta_se": float(abs(th(slope + se) - th(slope - se)) / 2), "n": int(len(e))}

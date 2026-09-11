@@ -11,7 +11,7 @@ figure `figures/03_estimators.png` from `scripts/plot_03_estimators.py`. Outputs
 |---|---|---|
 | C1 `power_vane_fit` | 1-min aggregates, partial load (300 < P < 3600, pitch < 0.5, op_frac > 0.99), un-waked by layout sector on de-stepped WindDir, healthy days only. Power divided by its 0.5 m/s wind-speed-bin median, binned by 1-min vane mean, bin medians fitted with A·cos^k(v − θ₀), k = 2 fixed (also free). | vane degrees |
 | C2 | same, but the wind reference is the nearest good neighbour's simultaneous power (150-unit bins) instead of the nacelle anemometer | vane degrees |
-| C4 `manoeuvres` + `manoeuvre_events` + `manoeuvre_fit` | Yaw manoeuvres = runs of NacDir updates < 60 s apart (≈ 100–150 k per turbine; ramps of ~0.5°/s, 2–30°). For each: ln(P_after/P_before) − same for the reference, windows −6…−2 min and +2…+6 min, both windows fully in partial load / un-waked. Huber slope of lnR vs signed rotation Δ; θ = atan(−slope/k). | physical degrees (no vane involved) |
+| C4 `manoeuvres` + `manoeuvre_events` + `manoeuvre_fit` | Yaw manoeuvres = runs of NacDir updates < 60 s apart (≈ 100–150 k per turbine; ramps of ~0.5°/s, 2–30°). For each: ln(P_after/P_before) − same for the reference, windows −6…−2 min and +2…+6 min, both windows fully in partial load / un-waked. Huber slope of lnR vs signed rotation Δ; θ = atan(slope/k) (sign per `docs/estimators_theory.tex` Prop. C4; an earlier build had the sign flipped). | physical degrees (no vane involved) |
 
 Windows evaluated: label states (train, scored days), SCADA states from step 2,
 calendar quarters, whole record. 9–26 k usable manoeuvre events per turbine.
@@ -28,7 +28,7 @@ therefore an artefact of the encoding and was dropped.
 |---|---|---|---|
 | C1 k=2, whole record | −7.9 ± 0.5 | +2.4 ± 0.5 | −9.6 ± 0.4 |
 | C2 k=2, whole record | −5.0 ± 3.3 | −18 ± 2.9 | −18 ± 5.6 |
-| C4, whole record | −1.5 ± 0.5 | +0.4 ± 0.7 | +3.1 ± 0.4 |
+| C4, whole record | +1.5 ± 0.5 | −0.4 ± 0.7 | −3.1 ± 0.4 |
 | quarter-to-quarter swing of C1 inside one label state | 4° | 9° | 5° |
 
 None of the three ranks the turbines correctly (WTG13 should be far below the
@@ -53,8 +53,8 @@ dominated by systematic effects, not sampling noise.
 ### Why C4 is not the clean estimator hoped for (figure row 3)
 - The response exists and is large on some turbine-years (PPP_WTG17 2023:
   +10 % power gain after a −20° rotation, nothing after +20°), but it is not
-  consistent across turbines: SSS_WTG06 has the opposite slope, PPP_WTG14 gives
-  +3° while its label is −1.5.
+  consistent across turbines: SSS_WTG06 has the opposite slope, PPP_WTG12 gives
+  +1.5° while its label is −2, and WTG13 (label −8) comes out near zero.
 - **Null test:** PPP_WTG17's manoeuvre times applied to the power ratio of two
   unrelated turbines (WTG14/WTG08) give slope −0.0010 ± 0.0002 per degree, a third
   of the "real" slope. Clockwise (veering) wind shifts systematically coincide
@@ -63,10 +63,11 @@ dominated by systematic effects, not sampling noise.
   before a manoeuvre is only a fraction f of Δ (the wind shifts gradually), which
   scales any level estimate by an unknown f.
 - Different references disagree by 2–4° (WTG17 vs WTG15/18/33: 1.9, 4.3, 4.5).
-- C4's implied 2023 → 2024 change on PPP_WTG17 (≈ −4°) even disagrees in sign
-  with the consensus residual's Δr = −8° (→ Δθ ≈ +8°). Until the confounder is
-  differenced out (e.g. against the null distribution per manoeuvre direction
-  sector), C4 must not be used for levels or signs.
+- C4's implied 2023 → 2024 change on PPP_WTG17 (≈ +5°) agrees in sign with the
+  consensus residual's Δr = −8° (→ Δθ ≈ +8°) but is only ~60 % of it (the
+  unknown fraction f, see the theory note). Until the confounder is differenced
+  out (e.g. against the null distribution per manoeuvre direction sector), C4
+  must not be used for levels.
 
 ### What does carry information (figure row 2, right)
 The consensus heading residual r (step 2) separates WTG13's label states
