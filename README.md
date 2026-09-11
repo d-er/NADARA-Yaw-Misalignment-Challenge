@@ -33,3 +33,5 @@ uv pip install --python .venv/bin/python pandas pyarrow polars scipy ruptures sc
 2. [Encoder de-stepping and state segmentation](docs/02_segmentation.md)
 3. [Per-window angle estimators (negative result)](docs/03_estimators.md)
 4. [Submission builder](docs/04_submission.md)
+
+Theory: [docs/estimators_theory.tex](docs/estimators_theory.tex) derives the sensor model, C1–C5, the consensus residual, the submission model and the scoring rule (build with `pdflatex` in `docs/`).

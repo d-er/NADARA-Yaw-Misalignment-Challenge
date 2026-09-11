@@ -1,0 +1,753 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\graphicspath{{../figures/}}
+
+\newtheorem{proposition}{Proposition}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+\newcommand{\wrap}{\operatorname{wrap}}
+\newcommand{\med}{\operatorname{med}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\sgn}{\operatorname{sgn}}
+\newcommand{\dg}{^{\circ}}
+\newcommand{\Wt}{W_{\mathrm{t}}}
+\newcommand{\Nt}{N_{\mathrm{t}}}
+\newcommand{\Wr}{W_{\mathrm{r}}}
+\newcommand{\Nr}{N_{\mathrm{r}}}
+
+\title{Static yaw misalignment from high-resolution SCADA:\\
+       derivation of the estimators C1--C5, the consensus residual\\
+       and the submission model}
+\author{Nadara / WeDoWind challenge, participant 33}
+\date{September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note derives, from first principles, every quantity used in the pipeline
+\texttt{src/yaw/}: the sensor model that links the SCADA direction channels to the
+physical yaw error (\S\ref{sec:sensor}), the aerodynamic power--yaw law
+(\S\ref{sec:aero}), the four power-based estimators of the static misalignment
+(C1--C4, \S\ref{sec:c1}--\S\ref{sec:c4}), the vane-gain idea C5 and why the data
+encoding forbids it (\S\ref{sec:c5}), the neighbour-consensus heading residual and
+its change-point segmentation (\S\ref{sec:consensus}), the submission model that
+combines them (\S\ref{sec:submission}), and the scoring rule against which all of
+this is judged (\S\ref{sec:scoring}). Each section states the assumptions
+explicitly, derives the estimator, gives its sampling variance, and identifies the
+systematic error that dominates it in practice. The measured outcomes
+(\texttt{docs/03\_estimators.md}, \texttt{docs/04\_submission.md}) are quoted where
+they decide between competing models.
+\end{abstract}
+
+\tableofcontents
+
+%======================================================================
+\section{Notation and the sensor model}\label{sec:sensor}
+
+\subsection{Angles}
+All directions are compass bearings in degrees, clockwise from north, and every
+difference of two bearings is wrapped to $(-180\dg,180\dg]$,
+\begin{equation}
+  \wrap(x) = \big((x+180) \bmod 360\big) - 180 .
+\end{equation}
+For a set of bearings $x_1,\dots,x_n$ the \emph{circular mean} is
+\begin{equation}
+  \bar x = \operatorname{atan2}\Big(\tfrac1n\sum_i \sin x_i,\ \tfrac1n\sum_i \cos x_i\Big),
+  \qquad
+  \bar R = \Big|\tfrac1n\sum_i e^{\mathrm{i}x_i}\Big| \in [0,1],
+  \label{eq:circmean}
+\end{equation}
+where the resultant length $\bar R$ measures concentration ($\bar R=1$: all
+equal). The \emph{circular median} used throughout the consensus code is the
+ordinary median of the wrapped deviations from the circular mean,
+$\med_\circ(x) = \bar x + \med_i \wrap(x_i - \bar x)$; it inherits the
+robustness of the median while being invariant to where the $\pm180\dg$ cut sits.
+
+\subsection{True and reported quantities}
+Let, at a given instant,
+\begin{align*}
+  \Wt &\ \text{true (free-stream) wind direction at the rotor,}\\
+  \Nt &\ \text{true nacelle heading (rotor axis),}\\
+  \gamma &= \wrap(\Wt - \Nt) \quad \text{the instantaneous yaw error,}
+\end{align*}
+with the sign convention that $\gamma>0$ when the wind comes from clockwise of
+the rotor axis. The SCADA stream does not report either true quantity. It reports
+\begin{align}
+  \Nr &= \Nt + \delta_n, \label{eq:Nr}\\
+  v_m &= b\,\gamma + \delta_v, \label{eq:vm}\\
+  \Wr &= \Nr + v_m, \label{eq:Wr}
+\end{align}
+where $\delta_n$ is the nacelle encoder's mounting offset (the encoder has no
+north reference), $\delta_v$ is the wind-vane's mounting offset and $b\le1$ is the
+vane's gain. Equation~\eqref{eq:Wr} is not an assumption but a fact of this data
+set: the field \texttt{WindDir} is computed by the controller as heading plus
+vane, so that \texttt{WindDir}$-$\texttt{NacDir} returns the vane reading exactly
+(verified in \texttt{docs/01}). The gain $b<1$ models the well-documented
+damping of the vane signal behind a rotating rotor: the wake swirl and the
+nacelle body deflect the flow so that the vane sees a fraction of the true inflow
+angle.\footnote{See the literature on nacelle transfer functions, e.g.\ the
+2025 WES preprint cited in \texttt{PLAN.md}. Everything below is written for
+general $b$; the implementation uses $b=1$ wherever no independent estimate
+exists.}
+
+\subsection{The controller and the definition of the label}
+The yaw controller integrates $v_m$ over minutes and rotates the nacelle whenever
+the filtered reading leaves a deadband around its set-point $s$. In steady state
+the controller therefore enforces $\E[v_m]=s$, so from~\eqref{eq:vm}
+\begin{equation}
+  \theta \;\equiv\; \E[\gamma] \;=\; \frac{s-\delta_v}{b}.
+  \label{eq:theta_def}
+\end{equation}
+$\theta$ is the \emph{static yaw misalignment}: the persistent yaw error the
+controller cannot see because it is inside its own measurement. It is what the
+WindFit reference system measures with an independent sensor on the nacelle,
+and it is the label of the challenge.\footnote{WindFit fits the power-optimal
+heading over several days; its daily series is therefore smoothed and drifts for
+a week before each step, which is why days near a step are excluded from
+scoring (\S\ref{sec:scoring}).} The label is negative on all three training
+turbines, and the empirical sign check of \S\ref{sec:signcheck} fixes that the
+label sign coincides with $\gamma$ as defined here.
+
+Two consequences shape everything that follows.
+\begin{enumerate}
+\item \textbf{The vane cannot see $\theta$.} Averaged over any window the vane
+      reads $s$, whatever $\theta$ is. Measured: the daily median of $v_m$ is
+      $\approx-3\dg$ on every PPP turbine irrespective of the label
+      (correlation with the label $-0.33$). Information about $\theta$ must come
+      from the \emph{response} of the turbine to $\gamma$ (power, rotor speed)
+      or from an external direction reference (neighbours).
+\item \textbf{$\theta$ changes in three ways}, and they are not equivalent for the
+      sensors: a change of the set-point $s$ (controller parameter), a change of
+      $\delta_v$ (vane re-mounted or re-calibrated), or a change of $b$
+      (blade/rotor state). All three move $\theta$ by~\eqref{eq:theta_def}, but
+      only the first two move the neighbour residual of \S\ref{sec:consensus},
+      and an encoder re-reference ($\delta_n$) moves the residual without moving
+      $\theta$ at all.
+\end{enumerate}
+
+%======================================================================
+\section{Aerodynamic model of power under yaw}\label{sec:aero}
+
+\subsection{The $\cos^k$ law}
+Actuator-disc theory for a rotor yawed by $\gamma$ replaces the free-stream speed
+$U$ by its component along the rotor axis, $U\cos\gamma$, in the mass flow and in
+the energy extracted. With $P=\tfrac12\rho A C_p U^3$ for the aligned rotor this
+gives $P(\gamma) = P(0)\cos^3\gamma$. Measurements on real rotors give a smaller
+exponent because the swept disc also captures part of the tangential component
+and because the tip-speed ratio, and hence $C_p$, shifts with $\gamma$ under
+torque control. The standard empirical form is
+\begin{equation}
+  P(U,\gamma) = \tfrac12\rho A\, C_p(\lambda,\beta)\, U^3 \cos^k\gamma ,
+  \qquad k\in[1.4,\,3],
+  \label{eq:cosk}
+\end{equation}
+which the OpenOA static-yaw method also assumes. The implementation fixes $k=2$
+after finding that a free $k$ wanders between $0.2$ and $13$ from month to month
+on this data (\S\ref{sec:c1_bias}); with $k$ fixed the only unknown of the
+power--yaw curve is its location.
+
+\subsection{Small-angle behaviour and why the deadband matters}
+Expanding \eqref{eq:cosk} around $\gamma=0$ with $\gamma$ in radians,
+\begin{equation}
+  \cos^k\gamma = 1 - \frac{k}{2}\gamma^2 + O(\gamma^4),
+  \qquad
+  \ln\cos^k\gamma = -\frac{k}{2}\gamma^2 - \frac{k}{12}\gamma^4 + O(\gamma^6).
+  \label{eq:cosk_small}
+\end{equation}
+The controller keeps $v_m$ inside roughly $\pm8\dg$ (measured occupancy in
+\texttt{figures/03\_estimators.png}). Over that range, with $k=2$, the power
+varies by $\tfrac{k}{2}(8\pi/180)^2 \approx 2\,\%$. Every estimator that locates
+the peak of \eqref{eq:cosk} from operational data therefore has to resolve a
+curvature whose full effect is two per cent of power, against a background of
+sector-, turbulence- and season-dependent power variations of the same order.
+This is the root cause of the failures documented for C1 and C2.
+
+\subsection{Nacelle anemometer under yaw}
+The nacelle anemometer sits behind the rotor and reads
+\begin{equation}
+  U_n = U\, h(\gamma,\lambda), \qquad h(0,\lambda)=h_0(\lambda)<1,\quad
+  \partial_\gamma h \ne 0 ,
+  \label{eq:anemo}
+\end{equation}
+i.e.\ the rotor-induced deficit itself depends on the yaw angle. Binning by
+$U_n$ (C1) is therefore \emph{not} binning by $U$: at fixed $U_n$ a yawed rotor
+has a different free-stream speed than an aligned one, and the apparent
+power--yaw curve is $\cos^k\gamma / h^3(\gamma,\lambda)$ rather than
+$\cos^k\gamma$. Since $h$ is symmetric in $\gamma$ to leading order this does not
+move the peak by itself, but it flattens or sharpens the curve, i.e.\ it is
+absorbed into an effective $k$ --- another reason to fix $k$.
+
+%======================================================================
+\section{C1: power-versus-vane peak with a nacelle wind reference}\label{sec:c1}
+
+\subsection{Estimator}
+Take 1-minute means in partial load, on healthy days, with the wind outside the
+wake sectors of the layout (\S\ref{sec:wake}), and with a within-minute vane
+standard deviation below $6\dg$ so that the minute has a well-defined yaw angle.
+Let $\bar v$ be the minute's mean vane and $\bar P$ its mean power. The
+free-stream speed is unknown, so it is removed by \emph{normalisation within
+wind-speed bins}: with $B(u)$ the $0.5\,m/s$ bin of the nacelle wind speed,
+\begin{equation}
+  \tilde P = \frac{\bar P}{\med\{\bar P' : \bar P' \in B(u)\}} .
+  \label{eq:norm}
+\end{equation}
+By \eqref{eq:cosk}, and because the bin median is taken over all yaw angles in
+the bin (which are concentrated near the set-point $s$),
+\begin{equation}
+  \E[\tilde P \mid \bar v] \;\approx\; A\,\cos^k\!\big(\bar v - \theta_0\big),
+  \qquad
+  \theta_0 = \delta_v \ \ (\text{for } b=1),
+  \label{eq:c1_model}
+\end{equation}
+where the peak location $\theta_0$ is the vane reading at which the rotor is
+aligned, $\gamma=0 \Leftrightarrow v_m=\delta_v$. For $b\ne1$ the curve becomes
+$\cos^k((\bar v-\delta_v)/b)$: the peak is still at $\delta_v$ but the curvature
+is stretched by $1/b^2$, which with fixed $k$ inflates the fitted
+$A$ and leaves $\theta_0$ unbiased to first order.
+
+The data are binned by $\bar v$ in $1\dg$ steps, each bin represented by its
+median $y_j$ and count $n_j$, and the two parameters $(A,\theta_0)$ are obtained
+by weighted non-linear least squares,
+\begin{equation}
+  (\hat A,\hat\theta_0) = \arg\min_{A,\theta_0}\ \sum_j n_j\big(A\cos^k(v_j-\theta_0) - y_j\big)^2 ,
+  \label{eq:c1_ls}
+\end{equation}
+solved with a bounded trust-region method. The bin median rather than mean is
+used because the within-bin distribution of $\tilde P$ is heavy-tailed (start-up
+minutes, curtailment tails that the power window does not fully remove).
+
+\subsection{From $\theta_0$ to the misalignment}
+Combining \eqref{eq:c1_model} with the controller identity
+\eqref{eq:theta_def},
+\begin{equation}
+  \hat\theta = \frac{s - \hat\theta_0}{b} \approx \med(v_m) - \hat\theta_0 ,
+  \label{eq:c1_theta}
+\end{equation}
+i.e.\ the misalignment is the distance between where the controller \emph{holds}
+the vane and where the power \emph{peaks} on the vane axis. Equation
+\eqref{eq:c1_theta} is what turns a peak location into a label estimate; the
+literature often reports $-\hat\theta_0$ alone, which silently assumes $s=0$.
+
+\subsection{Sampling variance}
+Linearising the residual vector $r(p)$ of \eqref{eq:c1_ls} at the solution with
+Jacobian $J$ gives the Gauss--Newton covariance
+\begin{equation}
+  \widehat{\Cov}(\hat p) = \hat\sigma^2 (J^\top J)^{-1},
+  \qquad
+  \hat\sigma^2 = \frac{\|r(\hat p)\|^2}{m - \dim p},
+  \label{eq:gn_cov}
+\end{equation}
+with $m$ the number of bins; the reported \texttt{theta\_se} is the square root
+of its $\theta_0$ diagonal element. This is a conditional standard error: it
+assumes the bin medians scatter independently around a $\cos^k$ curve. The
+measured quarter-to-quarter scatter of $\hat\theta_0$ within a single label state
+($4$--$9\dg$) is five to ten times larger than \eqref{eq:gn_cov}, which proves
+the model error dominates.
+
+\subsection{Why the peak location is biased: the tilt lemma}\label{sec:c1_bias}
+\begin{lemma}[Peak shift under a linear nuisance]\label{lem:tilt}
+Let the true bin curve be $y(v)=A[1-\tfrac{k}{2}\rho^2(v-\theta_0)^2]$ with
+$\rho=\pi/180$ (degrees to radians), and let an unmodelled nuisance add a
+linear trend $\varepsilon\,v$ (in units of normalised power per degree). Then the
+peak of the observed curve is at
+\begin{equation}
+  v^\ast = \theta_0 + \frac{\varepsilon}{A\,k\,\rho^2}.
+\end{equation}
+\end{lemma}
+\begin{proof}
+$\partial_v\big[y(v)+\varepsilon v\big] = -A k\rho^2 (v-\theta_0) + \varepsilon = 0$.
+\end{proof}
+With $k=2$, $\rho^2 = 3.05\times10^{-4}$, $A\approx1$: a tilt of one per cent of
+power across the $8\dg$ deadband, $\varepsilon = 0.01/8 = 1.25\times10^{-3}$
+per degree, shifts the peak by
+\[
+  \frac{1.25\times10^{-3}}{2\times3.05\times10^{-4}} \approx 2\dg .
+\]
+Any effect that correlates power with the sign of the vane deviation at the
+one-per-cent level --- a wind-direction sector with slightly different shear or
+turbulence, or the simple fact that the vane deviates to the right when the wind
+is veering, and veering periods have their own power statistics --- moves the
+fitted misalignment by degrees. The measured curves change shape between
+quarters of the same label state (monotone rising, monotone falling, peaked;
+\texttt{figures/03\_estimators.png}), which is exactly this lemma at work. The
+same mechanism explains why the free-$k$ fit is unstable: $k$ and the tilt are
+nearly collinear on a $\pm8\dg$ support.
+
+This is the failure the challenge README warns about (``ranks the three training
+turbines in the wrong order'') and the one the leading team's T0 entry
+reproduces (bias $-3\dg$).
+
+%======================================================================
+\section{C2: neighbour power as the wind reference}\label{sec:c2}
+
+C2 keeps the model \eqref{eq:c1_model}--\eqref{eq:c1_ls} but replaces the
+nacelle wind-speed bin in \eqref{eq:norm} by a bin of the \emph{simultaneous
+power of the nearest healthy neighbour} $P_j$ (bins of 150 power units, both
+turbines in partial load and unwaked):
+\begin{equation}
+  \tilde P_{\mathrm{C2}} = \frac{\bar P_i}{\med\{\bar P_i' : P_j' \in B(P_j)\}} .
+\end{equation}
+The motivation is \eqref{eq:anemo}: the neighbour's power is a wind reference
+that does not sit in the target's wake and is not a function of the target's
+yaw angle. Under the assumptions
+\begin{assumption}
+(i) the neighbour's free-stream speed is a monotone function of the target's,
+$U_j = g(U_i)$ with $g$ stable over the window; (ii) the neighbour's own yaw
+error is stationary over the window,
+\end{assumption}
+\noindent the ratio has the same peak at $\theta_0=\delta_v$ and the derivation
+of C1 goes through unchanged.
+
+What C2 removes and what it adds is decided by Lemma~\ref{lem:tilt}. It removes
+the yaw-dependence of the anemometer, which is symmetric in $\gamma$ and does
+not shift the peak in any case; it adds the neighbour's sector dependence: the
+map $g$ depends on the wind direction (terrain, partial wakes not in the
+layout mask), and wind direction correlates with the vane deviation. Empirically
+the C2 standard errors are $3$--$6\dg$ and its levels ($-5$, $-18$, $-18\dg$ on
+the three training turbines) are further from the labels than C1. The neighbour
+reference is the right idea for the \emph{speed} bias but the wrong tool for the
+\emph{tilt} bias.
+
+%======================================================================
+\section{C3: the rotor-speed method}\label{sec:c3}
+
+C3 was planned (Castellani et al.) and not implemented; the derivation shows why
+it cannot add information on this data. In the partial-load region the
+generator torque follows the optimal-$\lambda$ law
+\begin{equation}
+  T_g = K_g\,\Omega^2,\qquad P = T_g\Omega = K_g\,\Omega^3 ,
+  \label{eq:torque_law}
+\end{equation}
+with $K_g$ a constant of the controller. Rotor speed and power are therefore
+deterministically linked \emph{independently of the yaw angle}: a plot of
+$\Omega$ against $P$ is the same curve at every $\gamma$, and ``rotor speed at a
+given power'' carries no yaw information. Yaw information appears only when
+$\Omega$ is compared with an external speed reference: the equilibrium of
+\eqref{eq:torque_law} with the aerodynamic torque gives
+$\Omega = \lambda_{\mathrm{opt}} U \cos\gamma / R$ to leading order, so
+\begin{equation}
+  \frac{\Omega}{U_n} = \frac{\lambda_{\mathrm{opt}}}{R}\,\frac{\cos\gamma}{h(\gamma,\lambda)}
+\end{equation}
+peaks at $\gamma=0$ --- but this is the C1 estimator with $P^{1/3}$ in place of
+$P$ and the same anemometer, and by \eqref{eq:torque_law} it is
+algebraically the same fit. The rotor-speed method is useful on fleets where the
+power signal is curtailed or corrupted and $\Omega$ is not; here the reverse
+holds (power is the cleanest channel), so C3 was dropped.
+
+%======================================================================
+\section{C4: yaw manoeuvres as natural experiments}\label{sec:c4}
+
+\subsection{Idea}
+Every yaw manoeuvre rotates the nacelle by a \emph{known} angle $\Delta$
+(difference of \texttt{NacDir} before and after the run of updates), and a
+rotation is a rotation regardless of $\delta_n$, $\delta_v$ or $b$. The power
+before and after the manoeuvre is measured at two different yaw errors that
+differ by a known amount, so the pair of powers samples the \emph{derivative} of
+the $\cos^k$ curve at a known offset from the operating point. The vane is not
+used at all; the estimate is in physical degrees. This is the only estimator in
+the pipeline whose level is, in principle, free of the vane transfer function.
+
+\subsection{Derivation}
+Let a manoeuvre rotate the nacelle from $\Nt^-$ to $\Nt^+ = \Nt^- + \Delta$
+(compass, clockwise positive). The controller rotates towards the wind, so
+$\Delta>0$ means the wind had drifted clockwise of the nacelle. After the
+manoeuvre the controller has restored its equilibrium and the yaw error is the
+static misalignment, $\gamma^+ = \theta$. Before it, the wind was at the same
+direction relative to the old heading plus whatever fraction of the drift had
+already accumulated:
+\begin{equation}
+  \gamma^- = \wrap(\Wt - \Nt^-) = \theta + f\Delta,\qquad 0<f\le1 ,
+  \label{eq:gamma_before}
+\end{equation}
+where $f=1$ if the wind shifted as a step and the nacelle followed, and $f<1$
+if the wind drifted gradually and the $-6\ldots-2$~min window before the
+manoeuvre already contains part of the drift. Let $P^\pm$ be the mean power in
+the windows after and before, and $P_j^\pm$ the same for a reference neighbour
+that did not manoeuvre. Under \eqref{eq:cosk}, with the free-stream speed
+cancelling between target and reference (both in partial load, both unwaked),
+\begin{equation}
+  \ln R \;\equiv\; \ln\frac{P^+}{P^-} - \ln\frac{P_j^+}{P_j^-}
+  \;=\; k\big[\ln\cos\theta - \ln\cos(\theta+f\Delta)\big] + \eta ,
+  \label{eq:lnR}
+\end{equation}
+with $\eta$ the noise. Expanding $\ln\cos(\theta+x) = \ln\cos\theta - x\tan\theta
+- \tfrac{x^2}{2\cos^2\theta} + O(x^3)$ with $x=f\Delta$ in radians,
+\begin{equation}
+  \ln R = k f \tan\theta\;\Delta \;+\; \frac{k f^2}{2\cos^2\theta}\,\Delta^2 + O(\Delta^3) + \eta .
+  \label{eq:lnR_expand}
+\end{equation}
+\begin{proposition}[Sign and level from the manoeuvre slope]\label{prop:c4}
+The coefficient of the term linear in $\Delta$ is $\beta_1 = k f\tan\theta$
+(per radian). Its sign is the sign of $\theta$ in the convention
+$\gamma=\Wt-\Nt$, clockwise positive, and its magnitude gives
+\begin{equation}
+  \hat\theta = \arctan\frac{\hat\beta_1}{k f} .
+  \label{eq:c4_theta}
+\end{equation}
+The quadratic term is even in $\Delta$ and always positive: a manoeuvre in
+either direction increases power on average, by more for larger $|\Delta|$.
+Only the \emph{asymmetry} between $+\Delta$ and $-\Delta$ carries $\theta$.
+\end{proposition}
+Intuitively: if $\theta<0$ (rotor points clockwise of the wind), a manoeuvre with
+$\Delta<0$ started from $\gamma^-=\theta+f\Delta$, even further from zero, and the
+gain after it is large; a manoeuvre with $\Delta>0$ started from
+$\gamma^- = \theta + f\Delta$, closer to zero or past it, and the gain is small
+or negative. For $\theta=-5\dg$, $f=1$, $k=2$: $\Delta=-20\dg$ gives
+$P^+/P^- = \cos^2(-5\dg)/\cos^2(-25\dg) = 1.21$, $\Delta=+20\dg$ gives
+$\cos^2(-5\dg)/\cos^2(15\dg)=1.06$. This asymmetric pattern (large gain after
+$-20\dg$, little after $+20\dg$) is what \texttt{PPP\_WTG17} shows in 2023.
+
+\begin{remark}[Sign in the implementation]
+\texttt{manoeuvre\_fit} returns $\theta = \arctan(-\hat\beta_1/(kf))$, i.e.\ with
+the opposite sign to \eqref{eq:c4_theta}. Under the conventions of
+\S\ref{sec:sensor} (both \texttt{NacDir} and \texttt{WindDir} clockwise
+bearings, $\Delta$ = after minus before) the derivation above gives the positive
+sign. The stored C4 levels in \texttt{cache/state\_estimates.parquet} should be
+read with their sign flipped; this does not rescue C4 (see \S\ref{sec:c4_fail})
+but it changes the statement in \texttt{docs/03} that C4 ``disagrees in sign''
+with the consensus residual on \texttt{PPP\_WTG17}.
+\end{remark}
+
+\subsection{Estimation}
+Manoeuvres are runs of \texttt{NacDir} updates less than 60\,s apart with
+$|\Delta|\in[2\dg,30\dg]$ and duration below 5\,min; there are
+$10^5$ per turbine, of which $9$--$26\times10^3$ have both windows entirely in
+good partial-load, unwaked minutes for target and reference. The slope
+$\hat\beta_1$ is obtained by a Huber regression of $\ln R$ on $\Delta$ (in
+degrees, converted to radians in \eqref{eq:c4_theta}); the Huber loss
+\begin{equation}
+  \ell_\kappa(e) = \begin{cases} \tfrac12 e^2 & |e|\le\kappa \\ \kappa|e| - \tfrac12\kappa^2 & |e|>\kappa\end{cases}
+  \label{eq:huber}
+\end{equation}
+is used because $\ln R$ has heavy tails (gusts inside a four-minute window).
+The quadratic term is not fitted: with $\Delta$ symmetric around zero it is
+orthogonal to the linear term, and it is absorbed in the intercept and residual.
+The standard error is the bootstrap standard deviation over 200 resamples of the
+events, and the standard error of $\hat\theta$ follows by the delta method
+\begin{equation}
+  \widehat{\mathrm{se}}(\hat\theta) \approx \tfrac12\big|\theta(\hat\beta_1+\mathrm{se}) - \theta(\hat\beta_1-\mathrm{se})\big| .
+\end{equation}
+
+\subsection{Why C4 is not the clean estimator hoped for}\label{sec:c4_fail}
+Two systematic effects, both measured, break Proposition~\ref{prop:c4} on this
+data.
+\begin{enumerate}
+\item \textbf{A meteorological confounder.} A \emph{null test} applies the
+      manoeuvre times of \texttt{PPP\_WTG17} to the power ratio of two
+      unrelated turbines that did not manoeuvre. The slope should be zero; it
+      is $-1.0\pm0.2\times10^{-3}$ per degree, a third of the ``real'' slope.
+      Mechanism: the sign of $\Delta$ is the sign of the wind-direction change
+      (veering vs backing), and veering/backing episodes come with their own
+      power evolution (frontal passages, diurnal cycle) that is not identical at
+      two sites a few hundred metres apart. The reference normalisation in
+      \eqref{eq:lnR} removes the common part of the speed change, not the
+      direction-correlated residual. This term adds to $\beta_1$ directly and
+      cannot be separated from $\theta$ without modelling it per sector.
+\item \textbf{The unknown fraction $f$.} The level \eqref{eq:c4_theta} scales
+      as $1/f$, and $f$ is neither known nor constant: it is the fraction of the
+      wind shift that had already happened by the time of the ``before'' window.
+      With gradual drift and a $\pm8\dg$ deadband, $f$ is plausibly
+      $0.3$--$0.6$, i.e.\ the raw slope underestimates $|\theta|$ by a factor
+      two to three.
+\end{enumerate}
+The reference turbines disagree among themselves by $2$--$4\dg$, and the three
+training turbines are not ranked correctly. C4 is therefore kept as a feature
+(the asymmetry is real and large on some turbine-years) but not used for
+levels. The one open route to a label-free level is to difference the slope
+against the null distribution per wind-direction sector and manoeuvre direction.
+
+%======================================================================
+\section{C5: the vane gain from manoeuvre steps, and why it is impossible here}\label{sec:c5}
+
+If the vane responded instantaneously with gain $b$, a nacelle rotation of
+$\Delta$ during steady wind would produce a vane jump of $-b\Delta$
+(\eqref{eq:vm} with $\gamma\to\gamma-\Delta$), and the thousands of manoeuvres
+would give $b$ directly, converting all vane-unit estimates into physical
+degrees. On this data the derived vane jumps by \emph{exactly} $-\Delta$ at
+every \texttt{NacDir} update. The reason is the encoding, not physics: the
+stream is change-based and asynchronous, so at a \texttt{NacDir} update the
+\texttt{WindDir} field still holds the value computed by the controller at the
+last \texttt{WindDir} update, which was $\Nr^{\mathrm{old}} + v_m^{\mathrm{old}}$.
+The forward-filled difference \texttt{WindDir}$-$\texttt{NacDir} then reads
+$v_m^{\mathrm{old}} - \Delta$ until \texttt{WindDir} refreshes, whatever the
+vane physically does. The apparent ``gain'' is one by construction, and no
+quantity derived from the two direction channels at the 12-second scale can
+recover $b$. C5 was dropped, and the implementation sets $b=1$ throughout.
+
+%======================================================================
+\section{The neighbour-consensus heading residual}\label{sec:consensus}
+
+\subsection{Sensor algebra}
+Let $c(t)$ be a consensus estimate of the true wind direction built from
+neighbours (\S\ref{sec:cons_build}), $c = \Wt + \kappa$ with $\kappa$ a constant
+that depends on the neighbours' own offsets. From \eqref{eq:Nr} and the
+definition $\gamma=\Wt-\Nt$,
+\begin{equation}
+  r \;\equiv\; \wrap(\Nr - c) \;=\; \Nt + \delta_n - \Wt - \kappa \;=\; -\gamma + \delta_n - \kappa .
+  \label{eq:residual}
+\end{equation}
+Averaging over a day, $\E[\gamma]=\theta$, so
+\begin{equation}
+  \boxed{\ r(t) = -\theta(t) + \delta_n(t) - \kappa\ }
+  \qquad\Longrightarrow\qquad
+  \Delta r = -\Delta\theta \quad\text{whenever } \Delta\delta_n = 0 .
+  \label{eq:dr}
+\end{equation}
+\begin{proposition}
+The residual identifies \emph{changes} of the static misalignment in physical
+degrees with slope exactly $-1$, independent of the vane ($b$, $\delta_v$) and of
+the aerodynamics, but its \emph{level} is unidentifiable: $\delta_n$ and
+$\kappa$ are unknown constants.
+\end{proposition}
+\noindent This is the ``consensus anchor'' of the leading team. The residual is
+blind to changes of $\theta$ that occur through $b$ (the wind side of
+$\gamma$ does not move) --- but such changes are also invisible to the label
+mechanism to first order, so they are rare in the label series.
+
+Using $\Wr$ instead of $\Nr$ gives the same information:
+$\Wr - c = \delta_n + \delta_v + (b-1)\gamma - \kappa$, which for $b=1$ is a
+constant, and for $b<1$ tracks $-(1-b)\theta$, a damped version of
+\eqref{eq:dr}. The implementation uses $\Nr$.
+
+\subsection{Encoder re-references}
+$\delta_n$ is piecewise constant with jumps at re-references (service, power
+cycle of the encoder). A jump of $\delta_n$ moves $r$ of the affected turbine
+against \emph{all} its neighbours by the same amount on the same day. The
+detection rule uses exactly this signature. For every turbine $i$ and its $k=4$
+nearest same-site references $j$, the daily circular median of the 10-minute
+heading difference $\wrap(\Nr^i - \Nr^j)$ is unwrapped and segmented with PELT
+under an $L_1$ cost (\S\ref{sec:pelt}). A level shift of at least $25\dg$ that
+appears with the same sign within $\pm3$ days in a majority ($\ge60\,\%$, at
+least two) of $i$'s pairs is credited to $i$'s encoder and subtracted from its
+\texttt{NacDir} and \texttt{WindDir} from that date on. Sixty-seven such steps
+on ten turbines were found; none on \texttt{PPP\_WTG17}. Shifts below
+$25\dg$ cannot be attributed by majority (a $5\dg$ misalignment change and a
+$5\dg$ re-reference look identical in every pair), which is why the state
+segmentation later types boundaries with a jump above $15\dg$ as \texttt{encoder}
+and refuses to carry $\Delta r$ across them.
+
+\subsection{Building the consensus}\label{sec:cons_build}
+The per-pair difference $\wrap(\Nr^i - \Nr^j)$ is not constant even with
+$\theta$ and $\delta_n$ fixed: terrain steering and partial wakes make the
+direction difference between two sites a function of the wind direction. The
+implementation removes this by a \emph{sector correction}: within each pair,
+subtract the circular median of the difference in the neighbour's $30\dg$
+wind-direction sector, then take the daily median of the corrected difference
+over the 10-minute bins in which both turbines operate more than 90\,\% of the
+time (at least 12 bins). Days whose raw pair offset sits more than $30\dg$ from
+its 31-day rolling median are masked (multi-day frame excursions shorter than
+the PELT minimum size). Pairs whose daily inter-quartile range is more than
+twice the turbine's median pair IQR are dropped as noisy references, and
+\begin{equation}
+  r_i(t) = \med_{j\in\mathcal N_i}\ \med_{\text{bins of day } t}\ \wrap\!\big(\Nr^i - \Nr^j - m_{ij}(\text{sector}_j)\big)
+  \label{eq:r_def}
+\end{equation}
+is the daily residual, with a measured day-to-day noise of $\sigma\approx2\dg$
+(MAD). The double median makes \eqref{eq:r_def} robust to one bad neighbour and
+to a few bad bins; the price is that changes below $\approx1\dg$ (the two small
+label steps on WTG12 and WTG14) are under the noise floor.
+
+\subsection{Change-point segmentation (PELT)}\label{sec:pelt}
+States are found by minimising, over all partitions of the day index
+$1..T$ into contiguous segments $S_1,\dots,S_m$,
+\begin{equation}
+  \sum_{\ell=1}^{m}\ \sum_{t\in S_\ell} \big(y_t - \bar y_{S_\ell}\big)^2 \;+\; \beta\,(m-1),
+  \qquad |S_\ell| \ge n_{\min},
+  \label{eq:pelt}
+\end{equation}
+where $y_t$ is the 7-day rolling median of $r_i$ (gaps interpolated so that
+states are contiguous in calendar time), $\beta=400$ and $n_{\min}=14$ days.
+The pruned exact linear time algorithm solves \eqref{eq:pelt} exactly by dynamic
+programming with pruning of candidate change points that can never be optimal.
+The $L_2$ cost is the negative log-likelihood of a piecewise-constant Gaussian
+mean, so $\beta$ plays the role of a BIC-type penalty: a break is accepted when
+it reduces the residual sum of squares by more than $\beta$, which for
+$\sigma_{\text{smooth}}\approx1\dg$ corresponds to a level jump $\delta$ over
+$n$ days with $n\delta^2/2 \gtrsim 400$, e.g.\ $\delta\ge2.4\dg$ over 140 days
+or $\delta\ge5\dg$ over 30 days. $\beta$ was chosen on the training turbines
+(lower values split \texttt{PPP\_WTG17}'s 2023 into up to 13 states and
+\texttt{SSS\_WTG06} into 50 --- noise, not physics). For the encoder step
+detection the $L_1$ cost $\sum|y_t - \med(y_{S_\ell})|$ is used instead, so that
+single outlying days do not create segments.
+
+The state level is $\bar r_\ell = \med_{t\in S_\ell} y_t$; the first day of each
+state is typed \texttt{encoder} when $|\bar r_\ell - \bar r_{\ell-1}|>15\dg$, else
+\texttt{candidate}; and days within $\pm7$ of a boundary are flagged
+\texttt{transition}, mirroring the scoring rule.
+
+Measured on the training turbines against the states derived from the labels
+themselves: ARI $0.47$ / $0.37$ / $0.79$ (WTG12/13/14), limited by sub-degree
+label steps that $r$ cannot see; on \texttt{PPP\_WTG17} two states with the
+boundary at 2024-01-06 and $\Delta r = -8.05\dg$, i.e.\ $\Delta\theta=+8\dg$.
+
+%======================================================================
+\section{The submission model}\label{sec:submission}
+
+\subsection{Structure}
+For every turbine-day the prediction is
+\begin{equation}
+  \hat\theta(t) = L + a + b\,x(t),\qquad
+  x(t) = \bar r_{\ell(t)} - \alpha_{\sigma(\ell(t))},
+  \label{eq:submission}
+\end{equation}
+where $\ell(t)$ is the day's state, $\sigma(\ell)$ its encoder-free segment (a
+maximal run of states without an \texttt{encoder}-typed boundary), $\alpha_\sigma$
+the segment anchor, $L$ the level prior, and $(a,b)$ either fixed by physics
+(T0: $a=0$, $b=-1$ from \eqref{eq:dr}) or fitted on the labelled turbines (T3).
+The cluster field is $\ell(t)$.
+
+\subsection{The level prior $L$}
+No label-free estimator of the level survived \S\ref{sec:c1}--\S\ref{sec:c4}.
+The prior used is the \emph{vane set-point}: from \eqref{eq:theta_def} with
+$b=1$ and the assumption $\delta_v=0$,
+\begin{equation}
+  L = s = \med_{\text{healthy days}}\ \med_{\text{operating minutes}} v_m ,
+  \label{eq:L}
+\end{equation}
+the value at which the controller holds the vane. On the PPP site this is
+$-2.7$ to $-3.7\dg$ on every turbine, on SSS $-0.8$ to $-3.3\dg$. The prior is
+right when the vane is mounted true and the operator has deliberately chosen a
+non-zero set-point; it is wrong by $-\delta_v$ otherwise. On the training
+turbines it gives a bias of $-0.45$, $+2.5$ and $-0.8\dg$: correct within a
+degree on two of three, and $4.5\dg$ off on WTG13 whose vane evidently carries
+its own offset.
+
+\subsection{The anchor $\alpha_\sigma$}
+The prior \eqref{eq:L} is a statement about the turbine's \emph{typical} state.
+Two choices of ``typical'' were evaluated on the training turbines:
+\begin{align}
+  \alpha_\sigma^{\mathrm{med}} &= \med_{t\in\sigma} \bar r_{\ell(t)}
+  \quad\text{(the state holding most days),}\\
+  \alpha_\sigma^{\mathrm{mean}} &= \frac{1}{|\sigma|}\sum_{t\in\sigma} \bar r_{\ell(t)}
+  \quad\text{(day-weighted average of the state levels).}
+\end{align}
+The median anchor scores better on train (RMSE $2.18$ vs $2.48$) because the
+training turbines have one dominant state. For \texttt{PPP\_WTG17}, whose two
+states hold 370 and 361 days, the median anchor is a coin flip that moves the
+whole prediction by $4\dg$; the mean anchor is the choice that minimises the
+expected squared error under ignorance of which state is typical, and it was
+submitted first. Re-anchoring per segment is what stops encoder re-references
+below the $25\dg$ attribution threshold from propagating into the levels.
+
+\subsection{T3 calibration}
+On the scored training days the residual $y = \theta_{\text{label}} - L$ is
+regressed on $x$ with the Huber loss \eqref{eq:huber},
+\[
+  (\hat a,\hat b) = \arg\min_{a,b} \sum_t \ell_{1.35}\big(y_t - a - b x_t\big),
+\]
+giving $\hat a=-0.73\dg$, $\hat b=-0.93$ on all three turbines: the labels
+confirm the physical slope of $-1$ and shift the level by less than a degree.
+Leave-one-turbine-out, the fit is \emph{worse} than T0 (RMSE $4.4$ vs $2.5$),
+because only WTG13 has label steps large enough to identify $b$; holding it out
+collapses $\hat b$ to zero. The T3 file is therefore the T0 file with a
+$-0.7\dg$ shift and a $7\,\%$ shrink of the deltas, and the honest reading is
+that three labelled turbines cannot calibrate more than the sign.
+
+\subsection{Sign check}\label{sec:signcheck}
+Two independent tests are asserted before any file is written.
+\begin{enumerate}
+\item The ordinary least-squares slope of the label on $x$ over the scored
+      training days must be negative; measured $-0.74$. This is \eqref{eq:dr}
+      seen from the labels.
+\item Around 2023-01-14..18 the vane median of \texttt{PPP\_WTG13} moved by
+      $-2.6\dg$ while the label moved by $+3.0\dg$. By \eqref{eq:theta_def} a
+      change of the set-point $s$ (or of $\delta_v$ with the controller
+      re-nulling) moves $\theta$ by the same amount in the \emph{same}
+      direction, unless the label sign is opposite to the vane sign convention.
+      The observed opposite motion therefore fixes: label $= -\gamma$ in the
+      raw vane convention, or equivalently $\gamma$ in the convention
+      ``wind minus nacelle'' after accounting for the direction in which this
+      controller reports the vane. The test is asserted as ``vane and label
+      move in opposite directions''; together with test~1 it pins the sign of
+      the submission model, which is all that matters for scoring.
+\end{enumerate}
+
+%======================================================================
+\section{Wake sectors}\label{sec:wake}
+For target $i$ and each published neighbour $j$ within four times the nearest
+published distance (only ratios are known; the layout is scaled), the bearing
+$\beta_{ij}$ from $i$ to $j$ is exact. A minute is flagged waked when the
+de-stepped wind direction lies within $\pm20\dg$ of any $\beta_{ij}$, and
+all power-based estimators use unwaked minutes only. Since only 16 of the
+site's turbines are published, the mask is a lower bound on real waking; residual
+partial wakes are one of the sector-dependent nuisances of
+Lemma~\ref{lem:tilt}.
+
+%======================================================================
+\section{Scoring rule and what it rewards}\label{sec:scoring}
+
+\subsection{Metrics}
+With $D$ the set of scored days (labelled, outside $\pm7$ days of a label step),
+\begin{equation}
+  \mathrm{RMSE} = \sqrt{\frac1{|D|}\sum_{t\in D}(\hat\theta_t-\theta_t)^2},\quad
+  \mathrm{MAE} = \frac1{|D|}\sum_{t\in D}|\hat\theta_t-\theta_t|,\quad
+  \mathrm{bias} = \frac1{|D|}\sum_{t\in D}(\hat\theta_t-\theta_t).
+\end{equation}
+The tie-breaker is the adjusted Rand index between the submitted clusters and
+the label-derived states. For a contingency table $n_{uv}$ (cluster $u$, true
+state $v$) with margins $a_u, b_v$ and $n=|D|$,
+\begin{equation}
+  \mathrm{ARI} = \frac{\sum_{uv}\binom{n_{uv}}{2} - \big[\sum_u\binom{a_u}{2}\sum_v\binom{b_v}{2}\big]/\binom n2}
+                      {\tfrac12\big[\sum_u\binom{a_u}{2}+\sum_v\binom{b_v}{2}\big] - \big[\sum_u\binom{a_u}{2}\sum_v\binom{b_v}{2}\big]/\binom n2},
+\end{equation}
+which is $1$ for identical partitions up to relabelling and $0$ in expectation
+for a random partition. It is invariant to cluster names and to the number of
+clusters only insofar as splitting a true state costs ARI in proportion to the
+split.
+
+\subsection{Effective sample size and the paired bootstrap}
+Scored days are runs of a piecewise-constant series; the error of a
+piecewise-constant prediction is constant within each run, so the effective
+number of independent observations is the number of states (two on
+\texttt{PPP\_WTG17}, of order fifteen on the training set), not the number of
+days. The organisers resample whole states with replacement, score every
+submission on the same draw, and declare a submission provably better than
+another only if its RMSE is lower on essentially all draws. The local harness
+\texttt{yaw.evaluate.score} reproduces this with 1000 draws over
+(turbine, state) blocks; the resulting 95\,\% interval for the T0 model on the
+training turbines is $1.8$--$3.3\dg$ around $2.48$, which is the honest
+uncertainty of every number quoted in this note.
+
+\subsection{Implication for the strategy}
+Because RMSE differences smaller than the band width are ties and ARI then
+decides, and because the level of $\theta$ is what none of the physics
+estimators can pin better than a few degrees, the winnable quantity is the
+segmentation (ARI, from \S\ref{sec:consensus}) plus a level that is not badly
+wrong. The label-free T0 model of \S\ref{sec:submission} scores $2.5\dg$ on the
+training turbines against a best-constant baseline of $3.1$--$6.1\dg$; the
+current T0 leader on the public board scores $3.9\dg$ with a year-static
+segmentation.
+
+%======================================================================
+\section{Summary of assumptions per estimator}
+\begin{center}\small
+\begin{tabular}{@{}lp{3.6cm}p{2.6cm}p{2.4cm}p{4.2cm}@{}}
+\toprule
+ & measures & units & needs & dominant systematic \\
+\midrule
+C1 & peak of $P$ vs $v_m$ at fixed $U_n$ & vane ($\delta_v$, $b$) & $k$ fixed & tilt (Lemma~\ref{lem:tilt}), anemometer \\
+C2 & peak of $P_i/P_j$ vs $v_m$ & vane & healthy neighbour & tilt via neighbour sector \\
+C3 & $\Omega$ vs $P$ & --- & --- & degenerate under torque law \\
+C4 & asymmetry of $\ln R$ in $\Delta$ & physical & $k$, $f$ & veering confounder, unknown $f$ \\
+C5 & vane jump at $\Delta$ & --- & synchronous channels & impossible (encoding) \\
+$r$ & $\Delta\theta$ from $\Delta r$ & physical, slope $-1$ & stable $\delta_n$ & re-references $<25\dg$ \\
+$L$ & vane set-point $s$ & physical if $\delta_v=0$ & --- & $\delta_v$ (WTG13: $4.5\dg$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}
