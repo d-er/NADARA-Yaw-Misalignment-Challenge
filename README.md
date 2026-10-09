@@ -8,7 +8,7 @@ $$
 $$
 
 | Symbol | Meaning | Source |
-|---|---|---|
+|----|----------------------|--------|
 | $\hat\theta(d)$ | predicted static yaw misalignment on day $d$ | |
 | $\ell(d)$ | the day's state; submitted as `cluster` | change points of $r$ (§3) |
 | $\bar r_\ell$ | level of the neighbour heading residual in state $\ell$ | §2 |
@@ -145,7 +145,7 @@ boundaries.
 ## 5. What was submitted
 
 | File | Turbine | States | Predicted levels |
-|---|---|---|---|
+|---------|------|-----------|----------|
 | `Results_33_T0_0.csv` | PPP_WTG17 | 2 (boundary 2024-01-06, $\Delta r = -8.05°$) | −6.8° then +1.3° |
 | `Results_33_T0_final.csv` | SSS_WTG06 | 13, in 4 encoder-free segments | −9.7° … +11.8°, mean −1.8° |
 
@@ -176,7 +176,7 @@ level is the vane set-point. The training labels were used for two things only.
 ## 8. Repository layout
 
 | Path | Content |
-|---|---|
+|--------|----------------------|
 | `src/yaw/` | the method: loading and aggregation, sensor-health flags, label states, neighbour residual and states, submission model, local scoring |
 | `scripts/` | one script per pipeline step, plus one figure script per step |
 | `tests/` | unit tests |
@@ -184,6 +184,7 @@ level is the vane set-point. The training labels were used for two things only.
 | `submissions/` | the two submitted files |
 | `figures/` | the figures used above |
 | `docs/T0_theory.tex`, `.pdf` | the full derivation with all thresholds |
+| `docs/T0_method_33.pdf` | sections 1–7 of this README as PDF, built by `scripts/build_method_pdf.py` |
 
 ## 9. Reproducing the files
 
@@ -193,7 +194,7 @@ Put the challenge data (`train.parquet`, `validate.parquet`, `test.parquet`,
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install pandas pyarrow numpy ruptures scikit-learn matplotlib pytest
+.venv/bin/pip install pandas pyarrow numpy ruptures scikit-learn matplotlib pytest pypandoc_binary
 
 .venv/bin/python -m pytest -q
 .venv/bin/python scripts/build_cache.py                         # step 1: aggregates, daily table, label states (~1 min on 8 cores)
@@ -203,6 +204,8 @@ python -m venv .venv
 .venv/bin/python scripts/plot_01_data.py                        # figures
 .venv/bin/python scripts/plot_02_states.py
 .venv/bin/python scripts/plot_03_submission.py
+
+.venv/bin/python scripts/build_method_pdf.py                    # docs/T0_method_33.pdf (needs pdflatex)
 ```
 
 Intermediate tables are written to `cache/`. Run from raw data, the three steps
