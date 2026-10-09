@@ -48,3 +48,39 @@ def test_submission_features_reanchor_at_encoder_boundary():
     p = predict(f, pd.Series({"a": -3.0}))
     assert np.allclose(p.yaw_misalignment_deg.tolist(), [-5, -5, -1, -1, -3, -3])  # dtheta = -dr
     assert p.cluster.tolist() == [0, 0, 1, 1, 2, 2]
+
+
+def _frames(shifts: dict[str, list[tuple[int, int, float]]], days: int = 300) -> dict[str, pd.DataFrame]:
+    """Hourly synthetic frames; `shifts[t]` = (first day, last day exclusive, degrees added to the heading)."""
+    ts = pd.date_range("2023-01-01", periods=days * 24, freq="h")
+    day = np.arange(len(ts)) // 24
+    wind = 180 + 40 * np.sin(np.arange(len(ts)) / 50)
+    out = {}
+    for t in ("a", "b", "c", "d", "e"):
+        nac = wind.copy()
+        for d0, d1, deg in shifts.get(t, []):
+            nac[(day >= d0) & (day < d1)] += deg
+        out[t] = pd.DataFrame({"ts": ts, "NacDir": nac % 360, "WindDir": nac % 360, "op_frac": 1.0})
+    return out
+
+
+def test_frame_plan_masks_excursion_and_keeps_rereference(monkeypatch):
+    from yaw import consensus as C
+    monkeypatch.setattr(C, "reference_neighbours", lambda tid, k: pd.Index([t for t in "abcde" if t != tid][:k]))
+    # a: 15-day excursion of -100 deg that comes back 4 deg off (a real change, not an encoder event)
+    # b: permanent re-reference of +60 deg
+    frames = _frames({"a": [(100, 115, -100.0), (115, 300, 4.0)], "b": [(200, 300, 60.0)]})
+    d = lambda n: pd.Timestamp("2023-01-01") + pd.Timedelta(days=n)
+    steps = pd.DataFrame({"turbine_id": ["a", "a", "b"], "date": [d(100), d(115), d(200)], "jump": [-97.0, 108.0, 55.0]})
+    plan = C.frame_plan(frames, steps)
+    pa, pb = plan[plan.turbine_id == "a"], plan[plan.turbine_id == "b"]
+    assert pa.kind.tolist() == ["frame", "excursion", "frame"]
+    assert not pa.rereference.any() and (pa["corr"].dropna() == 0).all()     # came back: nothing subtracted
+    assert pb.rereference.tolist() == [False, True] and abs(pb["corr"].iloc[1] - 60) < 1
+    out = C.destep(frames, plan)
+    gone = out["a"].ts.dt.normalize()
+    assert not ((gone >= d(97)) & (gone <= d(118))).any()                    # excursion and margins dropped
+    after = out["a"][out["a"].ts >= d(150)]
+    assert np.allclose(C.wrap180(after.NacDir - frames["c"].set_index("ts").NacDir.reindex(after.ts).values), 4.0)  # the 4 deg survive
+    late = out["b"][out["b"].ts >= d(210)]
+    assert np.abs(C.wrap180(late.NacDir - frames["c"].set_index("ts").NacDir.reindex(late.ts).values)).max() < 1  # re-reference removed

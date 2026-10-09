@@ -356,7 +356,7 @@ from the two direction channels at the 12-second scale can recover $g$. Therefor
 $g=1$ is used throughout.
 
 %======================================================================
-\section{Encoder de-stepping, consensus residual and states}\label{sec:step2}
+\section{Encoder frames, consensus residual and states}\label{sec:step2}
 \subsection{Sensor algebra of the residual}\label{sec:algebra}
 Suppose a consensus estimate $c(t)$ of the true wind direction is available from
 the neighbours, of the form $c = \Wt + \kappa$ with $\kappa$ a constant that
@@ -391,11 +391,14 @@ by pair, \S\ref{sec:cons_build}, which is equivalent because every pair
 difference $D_{ij} = \wrap(\Nr^i-\Nr^j)$ contains $-\gamma^i+\gamma^j+\delta_n^i-\delta_n^j$
 and the neighbour's terms are constant over a day up to noise.
 
-\subsection{Pair series and encoder re-references}\label{sec:destep}
-$\delta_n$ is piecewise constant with jumps at re-references (service, power
-cycle of the encoder). A jump of $\delta_n^i$ moves $D_{ij}$ against \emph{all}
-neighbours $j$ by the same amount on the same day; the detection rule uses
-exactly this signature.
+\subsection{Pair series, excursions and re-references}\label{sec:destep}
+$\delta_n$ is piecewise constant with jumps. A jump of $\delta_n^i$ moves
+$D_{ij}$ against \emph{all} neighbours $j$ by the same amount on the same day;
+the detection rule uses exactly this signature. Two kinds of jump occur and
+must be treated differently: a \emph{re-reference}, after which $\delta_n$
+stays at its new value, and an \emph{excursion}, in which the heading reads of
+the order of $100\dg$ off for one to six weeks and then returns to the old
+frame. Excursions are by far the more frequent.
 
 \paragraph{Reference set.} For each turbine $i$ the $n_{\mathrm{nb}}=4$ nearest
 same-site turbines are its references, excluding \code{PPP\_WTG12} and
@@ -422,32 +425,80 @@ the same sign appear within $\pm3$ days in at least $60\,\%$ of $i$'s pairs and
 in at least two of them. The credited jump is the median of the matching
 candidates and its date the earliest of them. Shifts below $25\dg$ cannot be
 attributed by majority: a $5\dg$ misalignment change and a $5\dg$
-re-reference look identical in every pair. That is why the state segmentation
-later types boundaries with a jump above $15\dg$ as encoder events
-(\S\ref{sec:states}) and the submission refuses to carry $\Delta r$ across
-them.
+re-reference look identical in every pair. Fifty-nine steps on nine turbines
+were credited, none on \code{PPP\_WTG17} or its three nearest neighbours.
 
-\paragraph{De-stepping.} With credited jumps $(d_1,J_1),(d_2,J_2),\dots$ of
-turbine $i$, both direction channels are corrected from each date on,
-\begin{equation}
-  \Nr^{i}(t) \leftarrow \Big(\Nr^{i}(t) - \sum_{n:\ d_n\le t} J_n\Big) \bmod 360,
-  \qquad \text{and likewise } \Wr^{i} .
-  \label{eq:destep}
-\end{equation}
+\paragraph{Why the credited jumps are not subtracted.} The first version of
+the method subtracted every credited jump $J_n$ from the heading from its date
+on. For an excursion this subtracts two independent estimates, one out and one
+back, each a difference of medians of whole PELT segments of which the
+excursion segment holds only $10$--$20$ noisy days. They do not cancel: on
+\code{SSS\_WTG06} the pairs $(-92.2,+101.9)$, $(-119.2,+125.7)$,
+$(-111.0,+112.4)$ and $(-108.9,+117.3)$ leave $+9.6$, $+6.5$, $+1.5$ and
+$+8.4\dg$ in $r$, and a one-week deviation in November 2023 was credited as a
+single $-30.3\dg$ step with no return. These remainders are as large as the
+misalignment signal of \eqref{eq:dr} and produced $13$ states on
+\code{SSS\_WTG06} where the raw pair offsets show three. The validate turbine
+has no credited step and was unaffected, so the defect was invisible in the
+validate round.
+
+\paragraph{Frame plan.} The credited step dates $d_1<d_2<\dots$ of turbine $i$
+cut its record into intervals; the jump sizes $J_n$ are not used further.
+\begin{enumerate}
+\item An interval shorter than $45$ days is an \emph{excursion}. Its days are
+      dropped, together with $\pm3$ days around every step date. Nothing is
+      subtracted.
+\item For two consecutive long intervals $A$ (before) and $B$ (after) the
+      shift is measured \emph{locally},
+      \begin{equation}
+        J_{AB} = \med_j\ \wrap\big(\bar D_{ij}^{B} - \bar D_{ij}^{A}\big),
+        \qquad
+        \bar D_{ij}^{B} = \cmed_{d\in B_{40}} D_{ij}(d),\quad
+        \bar D_{ij}^{A} = \cmed_{d\in A_{40}} D_{ij}(d),
+        \label{eq:localjump}
+      \end{equation}
+      with $B_{40}$ the first $40$ days of $B$ and $A_{40}$ the last $40$ days
+      of $A$,
+      on the raw daily pair series \eqref{eq:pair_daily}, with a margin of $3$
+      days at the interval edges, at least $7$ days on each side, and without
+      the days within $25$ days of a credited step of the neighbour $j$.
+\item If $|J_{AB}|<15\dg$ the frame \emph{came back}: no correction is applied,
+      and whatever small difference remains between $A$ and $B$ is left in the
+      data as signal.
+\item If $|J_{AB}|\ge15\dg$ the shift is a \emph{re-reference}: from the start
+      of $B$ on, both direction channels are corrected,
+      \begin{equation}
+        \Nr^{i}(t) \leftarrow \big(\Nr^{i}(t) - J_{AB}\big) \bmod 360,
+        \qquad \text{and likewise } \Wr^{i},
+        \label{eq:destep}
+      \end{equation}
+      cumulatively over successive re-references, and the date is recorded.
+\end{enumerate}
 $\Wr$ must be corrected too because it carries $\delta_n$ by \eqref{eq:Wr}; $v$
-is unaffected. Sixty-seven steps on ten turbines were credited, none on
-\code{PPP\_WTG17}.
+is unaffected. The plan finds $37$ excursions on eight turbines, $10$ to $43$
+days long ($117$ days in seven excursions on \code{SSS\_WTG06}, $123$ on
+\code{SSS\_WTG04}, $148$ on \code{PPP\_WTG14}), and a single re-reference:
+\code{PPP\_WTG12} on 2023-07-28, $J_{AB}=147\dg$. The rule assumes that the
+misalignment does not change by $15\dg$ or more across an excursion; a change
+below that survives, a change above it would be removed as a re-reference.
 
 \subsection{Building the residual}\label{sec:cons_build}
-After de-stepping, three cleaning operations and one correction are applied
-to each pair before the residual is formed.
+After the frame plan has been applied, three cleaning operations and one
+correction are applied to each pair before the residual is formed.
 \begin{enumerate}
-\item \textbf{Excursion masking.} The daily pair series \eqref{eq:pair_daily}
-      is recomputed on the de-stepped headings and compared with its centred
-      31-day rolling median (at least 7 days present). Days with
-      $|\wrap(D_{ij}(d) - \text{rolling median})| > 30\dg$ are dropped from the
-      pair. These are the multi-day frame excursions shorter than the
-      $n_{\min}=10$ days of the step detector.
+\item \textbf{Transient removal.} The daily pair series \eqref{eq:pair_daily}
+      is recomputed on the corrected headings and compared with its centred
+      rolling median over 91 days with data (at least 7 present; gaps are skipped, so the window can span more calendar days). Days with
+      $|\wrap(D_{ij}(d) - \text{rolling median})| > 10\dg$ are dropped from the
+      pair. A rolling median reproduces a level shift of any size exactly but
+      suppresses a pulse shorter than half its window, so this removes the
+      excursions, of the target \emph{or} of the neighbour, that are too small
+      or too short to be credited in \S\ref{sec:destep} (two of about $18\dg$
+      on \code{SSS\_WTG06}), while a persistent step passes unchanged. The
+      price is that a real state shorter than about $45$ days which departs by
+      more than $10\dg$ and returns is removed as well. Lowering the
+      $25\dg$ attribution threshold to $12\dg$ instead was tried and did not
+      catch these excursions.
 \item \textbf{Sector correction.} Terrain steering and partial wakes make the
       direction difference between two sites a function of the wind direction.
       With $\sigma_j$ the $30\dg$ sector of the neighbour's (de-stepped) wind
@@ -521,22 +572,26 @@ $\tilde r_i$. Each state $\ell$ receives the level
   \label{eq:rlevel}
 \end{equation}
 The first day of each state is typed \emph{encoder} when
-$|\bar r_\ell-\bar r_{\ell-1}|>15\dg$ (too large for a misalignment change) and
-\emph{candidate} otherwise; days within $\pm7$ of a boundary are flagged as
+$|\bar r_\ell-\bar r_{\ell-1}|>15\dg$ (too large for a misalignment change) or
+when it lies within $10$ days of a re-reference recorded by the frame plan of
+\S\ref{sec:destep}, and \emph{candidate} otherwise; days within $\pm7$ of a boundary are flagged as
 transitions, mirroring the scoring rule of \S\ref{sec:labels}.
 
 Measured on the training turbines against the label-derived states of
-\S\ref{sec:labels}: adjusted Rand index $0.47$ / $0.37$ / $0.79$ on
-WTG12/13/14, limited by the sub-degree label steps that $r$ cannot see. After
-de-stepping, $r$ tracks the inverted label at WTG13's two large events
-(20 January and 27 July 2023); at the July event $\Delta r\approx-9\dg$ for a
-label step of $+3.65\dg$, i.e.\ the service visit also re-referenced the encoder
-by a few degrees. \emph{A small re-reference and a misalignment change are
-indistinguishable in $r$}: $r$ gives boundaries reliably and magnitudes only as
-a prior. On \code{PPP\_WTG17} the result is two states with the boundary at
-2024-01-06 and $\Delta r=-8.05\dg$, i.e.\ $\Delta\theta=+8\dg$ by
-\eqref{eq:dr}; on \code{SSS\_WTG06}, $13$ states with three encoder-typed
-boundaries.
+\S\ref{sec:labels}: adjusted Rand index $0.77$ / $0.31$ / $0.00$ on
+WTG12/13/14, limited by the sub-degree label steps that $r$ cannot see
+(\code{PPP\_WTG14} receives a single state; its label step is $0.7\dg$). On
+WTG13 the residual gives one boundary, on 2023-08-23, with
+$\Delta r=-5.1\dg$ for a label step of $+3.65\dg$ four weeks earlier.
+\emph{A small re-reference and a misalignment change are indistinguishable in
+$r$}: $r$ gives boundaries reliably and magnitudes only as a prior. On
+\code{PPP\_WTG17} the result is two states with the boundary at 2024-01-06 and
+$\Delta r=-7.74\dg$, i.e.\ $\Delta\theta=+7.7\dg$ by \eqref{eq:dr}. On
+\code{SSS\_WTG06} it is six states, none with an encoder-typed boundary:
+boundaries on 2023-06-18 and 2023-09-25 with $\Delta r=+8.5\dg$ and $-7.9\dg$,
+and three further states in 2024 that differ by $2$ to $6\dg$. The residual
+exists on $519$ of the $731$ days of this turbine; the first $63$ days fall
+into one long excursion.
 
 \begin{figure}[p]\centering
 \includegraphics[width=\textwidth]{02_residuals.png}
@@ -587,8 +642,9 @@ the median over healthy days of the daily median vane in operation
 turbine, on SSS $-0.8$ to $-3.3\dg$. The prior is right when the vane is
 mounted true and the operator has chosen a non-zero set-point deliberately; it
 is wrong by $-\delta_v$ otherwise. On the training turbines it gives biases of
-$-0.45$, $+2.5$ and $-0.8\dg$: within a degree on two of three, and $4.5\dg$ off
-on WTG13, whose vane evidently carries its own offset.
+$-1.0$, $+2.3$ and $-1.2\dg$ for the complete model: about a degree on two of
+three, and more than two degrees on WTG13, whose vane evidently carries its own
+offset.
 
 \subsection{The anchor $\alpha$}
 The prior \eqref{eq:L} is a statement about the turbine's \emph{typical} state,
@@ -601,7 +657,7 @@ segment:
   \alpha^{\mathrm{mean}} &= \frac{1}{|\mathrm{seg}|}\sum_{d\in\mathrm{seg}} \bar r_{\ell(d)}
   \quad\text{(day-weighted average of the state levels).}
 \end{align}
-The median anchor scores better on train (RMSE $2.18$ versus $2.48$) because the
+The median anchor scores better on train (RMSE $1.91$ versus $2.18$) because the
 training turbines have one dominant state. For \code{PPP\_WTG17}, whose two
 states hold $370$ and $361$ days, the median anchor is a coin flip that moves the
 whole prediction by $4\dg$; the mean anchor minimises the expected squared
@@ -614,7 +670,7 @@ Two independent tests are asserted before any file is written; the script
 aborts if either fails.
 \begin{enumerate}
 \item The least-squares slope of the label on $x$ over the scored training days
-      must be negative; measured $-0.74$. This is \eqref{eq:dr} seen from the
+      must be negative; measured $-1.07$. This is \eqref{eq:dr} seen from the
       labels.
 \item On \code{PPP\_WTG13}, comparing operating samples before 13 January and
       after 19 January 2023, the median vane moved by $-2.6\dg$ while the label
@@ -636,8 +692,15 @@ No quantity in \eqref{eq:submission} is fitted to labels: the slope is $-1$ from
 residual alone. The training labels enter in two places only: the sign checks
 of \S\ref{sec:signcheck}, which fix the sign convention of $\theta$, and the
 evaluation of \S\ref{sec:scoring}. The segmentation thresholds
-($\lambda$, $n_{\min}$, the $15\dg$ and $25\dg$ limits) were set while the
-training turbines, with their labels, were in view.
+($\lambda$, $n_{\min}$, the $15\dg$ and $25\dg$ limits, the $45$-day excursion
+length and the $10\dg$ / $91$-day transient rule) were set while the training
+turbines, with their labels, were in view. The frame plan and the transient
+rule were introduced after the validate round, when the first final file was
+found to disagree with the raw pair offsets of \code{SSS\_WTG06}; the files of
+other participants were used to notice the disagreement and to check the
+result, not to set a threshold. In particular $\lambda=400$ was kept although
+$\lambda=800$ gives three states on \code{SSS\_WTG06}, because it is worse on
+the training turbines (RMSE $2.58$ against $2.18$).
 
 \subsection{What was submitted}
 \begin{center}\small
@@ -645,11 +708,16 @@ training turbines, with their labels, were in view.
 \toprule
 file & turbine & states & predicted levels \\
 \midrule
-\code{Results\_33\_T0\_0.csv} & \code{PPP\_WTG17} & 2 (boundary 2024-01-06, $\Delta r=-8.05\dg$) & $-6.8\dg$ then $+1.3\dg$ \\
-\code{Results\_33\_T0\_final.csv} & \code{SSS\_WTG06} & 13, in 4 encoder-free segments & $-9.7\dg\ldots+11.8\dg$, mean $-1.8\dg$ \\
+\code{Results\_33\_T0\_0.csv} & \code{PPP\_WTG17} & 2 (boundary 2024-01-06, $\Delta r=-7.74\dg$) & $-6.6\dg$ then $+1.1\dg$ \\
+\code{Results\_33\_T0\_final.csv} & \code{SSS\_WTG06} & 6, in 1 encoder-free segment & $-8.9\dg\ldots+1.0\dg$, mean $-1.6\dg$ \\
 \bottomrule
 \end{tabular}
 \end{center}
+The six levels on \code{SSS\_WTG06} are $-0.4$ (to 2023-06-17), $-8.9$ (to
+2023-09-24), $-1.0$ (to 2024-05-05), $+1.0$ (to 2024-08-12), $-5.0$ (to
+2024-09-13) and $+0.4\dg$. The \code{PPP\_WTG17} file of the validate round was
+produced by the first version of the method ($-6.8$ then $+1.3\dg$); the
+present version changes it by at most $0.16\dg$.
 Figure~\ref{fig:submission} shows the predictions against the residual they are
 derived from.
 
@@ -696,14 +764,14 @@ days. The organisers resample whole states with replacement, score every
 submission on the same draw, and call a submission better than another only if
 its RMSE is lower on essentially all draws. The local harness reproduces this
 with $1000$ draws over (turbine, state) blocks; the resulting $95\,\%$ interval
-for the T0 model on the training turbines is $1.8$--$3.3\dg$ around $2.48$,
+for the T0 model on the training turbines is $1.5$--$3.1\dg$ around $2.18$,
 which is the honest uncertainty of every score quoted in this note.
 
 \subsection{Implication for the strategy}
 RMSE differences smaller than that band are ties, and ARI then decides. The
 level of $\theta$ cannot be pinned better than a few degrees without labels, so
 the winnable quantity is the segmentation (ARI, from \S\ref{sec:step2}) plus a
-level that is not badly wrong. The T0 model scores $2.5\dg$ on the training
+level that is not badly wrong. The T0 model scores $2.2\dg$ on the training
 turbines against a best-constant baseline of $3.1$--$6.1\dg$.
 
 %======================================================================
@@ -713,10 +781,118 @@ turbines against a best-constant baseline of $3.1$--$6.1\dg$.
 \toprule
  & measures & units & needs & dominant systematic \\
 \midrule
-$r$ & $\Delta\theta$ from $\Delta r$ & physical, slope $-1$ & stable $\delta_n$ & re-references $<25\dg$ \\
-$L$ & vane set-point $s$ & physical if $\delta_v=0$ & --- & $\delta_v$ (WTG13: $4.5\dg$) \\
+$r$ & $\Delta\theta$ from $\Delta r$ & physical, slope $-1$ & stable $\delta_n$, healthy neighbours & re-references $<15\dg$; neighbour excursions $<10\dg$ \\
+$L$ & vane set-point $s$ & physical if $\delta_v=0$ & --- & $\delta_v$ (WTG13: $2.3\dg$) \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+%======================================================================
+\section{Outlook: fleet use and further work}\label{sec:outlook}
+
+\subsection{What the method is, operationally}
+The method needs the nacelle heading and the power of a turbine and of a few
+neighbours from the standard SCADA stream, no labels and no additional sensor,
+and processes $16$ turbines over two years in about two minutes. On both
+held-out turbines it found the large misalignment changes ($8$--$9\dg$) to
+within a day or two, with the step size in physical degrees. That makes it a
+candidate for \emph{fleet screening}: a statement of the form ``the alignment
+of this turbine changed by about $X\dg$ around this date'', which triggers an
+inspection. It is not a replacement for a measurement campaign, for the
+reasons below.
+
+\subsection{Weaknesses for a fleet roll-out}
+\begin{enumerate}
+\item \textbf{No absolute level.} By Proposition~\ref{prop:residual} the
+      residual identifies changes only. The level is the prior \eqref{eq:L},
+      which is off by $2.3\dg$ on \code{PPP\_WTG13} and cannot be checked
+      without a label. A turbine that has been misaligned by a constant amount
+      since commissioning is invisible. This is the main gap: closing it with
+      one calibration per turbine is exactly the cost the label-free tier is
+      meant to avoid.
+\item \textbf{Noise floor of several degrees.} The day-to-day noise of $r$ is
+      $1$--$2\dg$, but $r$ also wanders by up to $\pm5\dg$ over weeks
+      (Figure~\ref{fig:submission}), and with $\lambda=400$ a change needs
+      $nJ^2/2\gtrsim400$ to be accepted. Changes below $3$--$5\dg$ are not
+      reliable. The training labels only contain changes of $1$--$3\dg$, so
+      the range in which the method works is validated on two events
+      (\code{PPP\_WTG17}, \code{SSS\_WTG06}) for which no label is available
+      to us.
+\item \textbf{Dependence on healthy neighbours.} The consensus is a median
+      over four pairs. On \code{SSS\_WTG06} two of the four neighbours had
+      excursions of their own in August and September 2024, and the file
+      contains a $32$-day state at $-5.0\dg$ there that is probably not real.
+      Small sites, turbines at the edge of a farm, curtailed or stopped
+      neighbours and neighbours that are themselves being re-aligned are weak
+      spots; an isolated turbine cannot be assessed at all.
+\item \textbf{Encoder events cost data and can hide a change.}
+      \code{SSS\_WTG06} loses $117$ of $731$ days to excursions and has a
+      residual on $519$ days. A misalignment change that happens during an
+      excursion is dated to its end, and one of $15\dg$ or more across an
+      excursion is removed as a re-reference. A service visit that changes
+      both the vane and the encoder, the most likely real-world cause of a
+      misalignment change, is exactly the case in which the two are
+      confounded.
+\item \textbf{Short states are removed.} The transient rule deletes anything
+      shorter than about $45$ days that departs by more than $10\dg$ and
+      returns. A real fault of that shape, for example a loose vane that is
+      fixed after a month, is not reported.
+\item \textbf{Hand-set thresholds.} The $25\dg$, $15\dg$, $10\dg$, $45$-day,
+      $91$-day and $\lambda$ values were set on five turbines of one type at
+      two sites. The first version failed on the test site for precisely this
+      reason: the validate site did not exercise the de-stepping. Other
+      controllers, encoder types and terrain have to be expected to break
+      some of them.
+\item \textbf{Sector correction assumes a stationary site.} The sector
+      medians are taken over the whole record. Seasonal stability, vegetation,
+      new neighbouring turbines or a changed curtailment strategy move the
+      heading difference between two turbines without any misalignment.
+\item \textbf{Retrospective.} Centred rolling medians of $7$ and $91$ days and
+      a minimum state length of $14$ days mean that a change is confirmed
+      about one to two months after it happened. An online version would need
+      one-sided windows and would be noisier.
+\item \textbf{Changes of the vane gain are invisible.} A change of $\theta$
+      through $g$ in \eqref{eq:theta_def} does not move the residual
+      (\S\ref{sec:algebra}).
+\end{enumerate}
+
+\subsection{Further work}
+\begin{enumerate}
+\item \textbf{A level estimate.} Combine the residual with a within-turbine,
+      encoder-free estimator of the level, for example the power response
+      during yaw manoeuvres. Such an estimator is noisy day by day but only
+      one number per state is needed: the states of \S\ref{sec:states} say
+      which days may be pooled, which is the averaging the power methods lack.
+      Alternatively, quantify how many spot calibrations per farm are needed
+      when the residual carries the level from one turbine-state to the next.
+\item \textbf{Farm-wide solution instead of per-turbine medians.} Every pair
+      difference contains the misalignment and the encoder offset of both
+      turbines. Solving all pair series of a site jointly, with one
+      piecewise-constant offset per turbine and robust weights, would use
+      every pair twice, make the attribution of a shift to a turbine explicit
+      and remove the fixed choice of four neighbours and the manual reference
+      blacklist.
+\item \textbf{Segmentation on valid days with a noise model.} PELT currently
+      runs on a series interpolated across masked days, so that a gap counts
+      as evidence, and with a fixed penalty. Segmenting the valid days only,
+      with a penalty scaled by the turbine's own residual noise and its
+      autocorrelation, would remove the weak states of 2024 on
+      \code{SSS\_WTG06} for a stated reason rather than by tuning $\lambda$.
+\item \textbf{Uncertainty per state.} Report an interval for every
+      $\Delta\theta$ from the spread across pairs and across days, and a flag
+      when a boundary coincides with an excursion of the target or of a
+      neighbour. A screening tool needs to say how much to trust each alarm.
+\item \textbf{Use the encoder events.} Excursion and re-reference dates are a
+      by-product of the frame plan and are themselves maintenance-relevant;
+      they also mark the days on which a real change is most likely and least
+      observable.
+\item \textbf{Validation on more labelled turbines.} The claims above rest on
+      three labelled turbines with small steps and two unlabelled ones with
+      large steps. Changes of $3$--$10\dg$ with labels, a second turbine
+      type and a site with fewer than four neighbours are the missing cases.
+\item \textbf{Online operation.} One-sided windows, a detection delay stated
+      as a function of the step size, and a false-alarm rate estimated on
+      turbines known to be stable.
+\end{enumerate}
 
 \end{document}

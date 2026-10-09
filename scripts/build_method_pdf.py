@@ -1,5 +1,5 @@
 """Method description as PDF: renders the method part of README.md (everything before
-"## 8. Repository layout") with pandoc and pdfLaTeX.
+"## 9. Repository layout") with pandoc and pdfLaTeX.
 Reads README.md and the figures it references; writes docs/T0_method_33.pdf.
 Needs pypandoc_binary and a system pdflatex. Run after the figure scripts.
 """
@@ -10,7 +10,7 @@ import pypandoc
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "T0_method_33.pdf"
 
-CUT = "\n## 8. Repository layout"
+CUT = "\n## 9. Repository layout"
 
 # characters used in the README that pdfLaTeX does not know; inline code is set
 # with listings so that long paths break instead of running off the page
@@ -23,7 +23,7 @@ HEADER = r"""\DeclareUnicodeCharacter{2212}{\ensuremath{-}}
 """
 
 text = (ROOT / "README.md").read_text()
-assert CUT in text, "README.md has no section 8 heading to cut at"
+assert CUT in text, "README.md has no section 9 heading to cut at"
 method = text.split(CUT)[0]
 
 with tempfile.TemporaryDirectory() as tmp:
