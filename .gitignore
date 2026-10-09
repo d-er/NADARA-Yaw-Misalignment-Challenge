@@ -1,0 +1,15 @@
+data/
+cache/
+.venv/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.pytest_cache/
+figures/*.png
+!figures/01_vane_and_offsets.png
+!figures/02_residuals.png
+!figures/03_submission.png
+*.aux
+*.log
+*.out
+*.toc
