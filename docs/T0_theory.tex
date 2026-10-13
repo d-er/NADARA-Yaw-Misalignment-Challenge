@@ -308,6 +308,13 @@ for general $g$; the implementation uses $g=1$ because \S\ref{sec:gain} shows $g
 cannot be measured from this data.} Equation~\eqref{eq:Wr} is not an
 assumption but the encoding of the data set, \S\ref{sec:step1}.
 
+Equation~\eqref{eq:Nr} is the nacelle-position model of TNO report 2020 R11206,
+\S3.4, which also takes the calibration error as piecewise constant between
+maintenance steps and works with heading differences between turbine pairs. The
+complete algebra as used here, including the vane equation and a controller
+that nulls the measured vane, is from Participant~50's T1\_T2\_T3 solution in
+this challenge. \S\ref{sec:credits} lists who did what.
+
 \subsection{The controller and the definition of the label}
 The yaw controller filters $v$ over minutes and rotates the nacelle whenever the
 filtered reading leaves a deadband (measured occupancy $\approx\pm8\dg$) around
@@ -379,7 +386,7 @@ degrees with slope exactly $-1$, independent of the vane ($g$, $\delta_v$) and
 of the aerodynamics; its \emph{level} is not identifiable, because $\delta_n$
 and $\kappa$ are unknown constants.
 \end{proposition}
-\noindent This is the ``consensus anchor'' of the leading team. Using $\Wr$
+\noindent This is the ``consensus anchor'' of Participant~50's T1\_T2\_T3 solution. Using $\Wr$
 instead of $\Nr$ gives $\Wr - c = \delta_n + \delta_v + (g-1)\gamma - \kappa$,
 a constant for $g=1$ and a damped version of \eqref{eq:dr} for $g<1$; the
 implementation uses $\Nr$. The residual is blind to changes of $\theta$ that
@@ -689,18 +696,56 @@ matters for scoring.
 \subsection{Use of labels}\label{sec:labeluse}
 No quantity in \eqref{eq:submission} is fitted to labels: the slope is $-1$ from
 \eqref{eq:dr}, the level is \eqref{eq:L} and the states come from the SCADA
-residual alone. The training labels enter in two places only: the sign checks
-of \S\ref{sec:signcheck}, which fix the sign convention of $\theta$, and the
-evaluation of \S\ref{sec:scoring}. The segmentation thresholds
+residual alone. The training labels enter in three places: the sign checks
+of \S\ref{sec:signcheck}, which fix the sign convention of $\theta$, the
+evaluation of \S\ref{sec:scoring}, and the choice of one threshold. The thresholds
 ($\lambda$, $n_{\min}$, the $15\dg$ and $25\dg$ limits, the $45$-day excursion
-length and the $10\dg$ / $91$-day transient rule) were set while the training
-turbines, with their labels, were in view. The frame plan and the transient
-rule were introduced after the validate round, when the first final file was
-found to disagree with the raw pair offsets of \code{SSS\_WTG06}; the files of
-other participants were used to notice the disagreement and to check the
-result, not to set a threshold. In particular $\lambda=400$ was kept although
-$\lambda=800$ gives three states on \code{SSS\_WTG06}, because it is worse on
-the training turbines (RMSE $2.58$ against $2.18$).
+length and the $10\dg$ / $91$-day transient rule) are fixed constants, set on
+SCADA. Labels played a role in one of them, the penalty $\lambda$: the value
+$400$ was kept although $\lambda=800$ gives three states on
+\code{SSS\_WTG06}, because $800$ is worse on the training turbines (RMSE
+$2.58$ against $2.18$).
+
+\subsection{Sensitivity to the thresholds}\label{sec:sensitivity}
+The script \code{scripts/sensitivity.py} varies each threshold one at a time
+around the submitted value ($26$ variants).
+\begin{center}\small
+\begin{tabular}{@{}p{3.8cm}p{1.9cm}p{3.9cm}p{4.9cm}@{}}
+\toprule
+threshold (submitted) & varied over & \code{PPP\_WTG17} & \code{SSS\_WTG06} \\
+\midrule
+PELT penalty $\lambda$ ($400$) & $100$ to $1600$ & unchanged from $200$ to $1600$; $5$ states at $100$ & $3$ states from $600$ up, $8$ to $17$ states from $300$ down \\
+Minimum state length ($14$ days) & $7$, $28$ & unchanged & unchanged \\
+Smoothing ($7$ days) & $1$, $15$ & boundary moves by one day & $6$ states at $1$ day, $4$ at $15$ days \\
+Encoder attribution ($25\dg$) & $15$, $20$, $35$ & unchanged & one boundary moves by two days \\
+Re-reference limit ($15\dg$) & $10$, $20$ & unchanged & unchanged \\
+Excursion length ($45$ days) & $30$, $60$ & unchanged & levels move by up to $1.0\dg$, one boundary by a month \\
+Transient limit ($10\dg$) & $7$, $15$ & unchanged & $4$ states at $7\dg$, $7$ states at $15\dg$ \\
+Transient window ($91$ days) & $61$, $121$ & levels move by $0.1\dg$ & levels move by $0.1\dg$ \\
+Neighbours ($4$) & $3$, $5$ & unchanged & levels move by up to $0.4\dg$ \\
+Sectors ($12$) & $8$, $18$ & levels move by $0.3\dg$ & levels move by up to $0.8\dg$, one boundary by a month \\
+\bottomrule
+\end{tabular}
+\end{center}
+\begin{itemize}
+\item \code{PPP\_WTG17}: $25$ of the $26$ variants give the same two states,
+      with the boundary on 5 or 6 January 2024 and a step of $7.7$ to
+      $8.2\dg$. The remaining one ($\lambda=100$) keeps that boundary and adds
+      three more.
+\item \code{SSS\_WTG06}, 2023: the state from mid-June to 25 September 2023 is
+      found in $25$ of the $26$ variants, at $-8.4$ to $-9.1\dg$; $\lambda=100$
+      splits it into three parts between the same two dates.
+\item \code{SSS\_WTG06}, 2024: these states depend on the thresholds. All three
+      disappear for $\lambda\ge600$, and the $32$-day state at $-5.0\dg$ also
+      disappears with $15$-day smoothing or a $7\dg$ transient limit.
+\item Training score: the RMSE is $2.02$ to $3.17\dg$ over the variants
+      ($2.18\dg$ submitted); three variants score better than the submitted
+      one. Over the penalty it is $2.33\dg$ at $200$ and $300$, $2.18\dg$ at
+      $400$ and $2.58\dg$ from $600$ up.
+\end{itemize}
+The one choice informed by labels, the penalty, therefore does not affect the
+\code{PPP\_WTG17} file. On \code{SSS\_WTG06} it decides whether the three
+states of 2024 appear.
 
 \subsection{What was submitted}
 \begin{center}\small
@@ -837,12 +882,12 @@ reasons below.
       shorter than about $45$ days that departs by more than $10\dg$ and
       returns. A real fault of that shape, for example a loose vane that is
       fixed after a month, is not reported.
-\item \textbf{Hand-set thresholds.} The $25\dg$, $15\dg$, $10\dg$, $45$-day,
+\item \textbf{Fixed thresholds.} The $25\dg$, $15\dg$, $10\dg$, $45$-day,
       $91$-day and $\lambda$ values were set on five turbines of one type at
       two sites. The first version failed on the test site for precisely this
-      reason: the validate site did not exercise the de-stepping. Other
-      controllers, encoder types and terrain have to be expected to break
-      some of them.
+      reason: the validate site did not exercise the de-stepping.
+      \S\ref{sec:sensitivity} shows what the thresholds do here; other
+      controllers, encoder types and terrain may need other values.
 \item \textbf{Sector correction assumes a stationary site.} The sector
       medians are taken over the whole record. Seasonal stability, vegetation,
       new neighbouring turbines or a changed curtailment strategy move the
@@ -854,6 +899,9 @@ reasons below.
 \item \textbf{Changes of the vane gain are invisible.} A change of $\theta$
       through $g$ in \eqref{eq:theta_def} does not move the residual
       (\S\ref{sec:algebra}).
+\item \textbf{The high-frequency data is not exploited.} The residual is
+      built on 10-minute aggregates and would work on standard SCADA; the
+      12-second stream is only used to form them.
 \end{enumerate}
 
 \subsection{Further work}
@@ -894,5 +942,46 @@ reasons below.
       as a function of the step size, and a false-alarm rate estimated on
       turbines known to be stable.
 \end{enumerate}
+
+%======================================================================
+\section{Credits and own contribution}\label{sec:credits}
+The idea is Participant~50's; the implementation described in this note is
+ours.
+\begin{center}\small
+\begin{tabular}{@{}p{9.6cm}p{5.6cm}@{}}
+\toprule
+element & source \\
+\midrule
+Heading model $\Nr=\Nt+\delta_n$, pairwise heading differences, calibration error constant between maintenance steps & TNO report 2020 R11206, \S3.4 \\
+Full sensor algebra (vane bias, controller nulls the measured vane) & Participant 50 \\
+Level not identifiable from SCADA, change identifiable & Participant 50 (TNO for the heading part) \\
+Residual against a consensus of the neighbours; slope fixed from the algebra, not fitted & Participant 50 \\
+De-stepping the encoders; finding that this matters more than the model & Participant 50 (used in our first version) \\
+PELT change-point algorithm & Killick, Fearnhead and Eckley (2012); \code{ruptures} library \\
+\midrule
+Residual built pair by pair on the nacelle heading, sector correction, transient filter, robust medians & ours \\
+States from PELT on the residual; encoder-typed boundaries; one anchor per encoder-free segment & ours \\
+Encoder excursions masked instead of de-stepped; only persistent shifts corrected & ours \\
+Vane set-point as level (an assumption, not a solution of the level problem) & ours \\
+Use without labels and without a learned model (T0) & ours \\
+Application to \code{SSS\_WTG06} and the analysis of why the first version failed there & ours \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent References:
+\begin{itemize}
+\item C.~Stock-Williams, D.~Wouters, M.~Maj, \emph{Investigation into automating
+      wind turbine underperformance detection using social statistics}, TNO
+      report 2020 R11206
+      (\href{https://publications.tno.nl/publication/34637217/7RLl98/TNO-2020-R11206.pdf}{PDF}).
+\item Participant~50's T1\_T2\_T3 solution in this challenge.
+\item R.~Killick, P.~Fearnhead, I.~A.~Eckley, \emph{Optimal detection of
+      changepoints with a linear computational cost}, 2012; the
+      \code{ruptures} Python library.
+\end{itemize}
+
+\noindent Code and text were written with the help of an AI coding assistant
+and reviewed by the author.
 
 \end{document}

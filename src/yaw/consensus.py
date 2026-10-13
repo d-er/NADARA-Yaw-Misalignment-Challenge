@@ -1,6 +1,6 @@
 """Neighbour-consensus heading residual and encoder de-stepping.
 
-Sensor algebra (after the leading team's write-up): the reported nacelle heading
+Sensor algebra (after Participant 50's T1_T2_T3 solution): the reported nacelle heading
 is Nr = Nt + δn with δn the encoder's mounting offset, and the turbine settles at
 true misalignment θ = Wt − Nt. Against a neighbour consensus of the true wind,
 Nr − consensus = −θ + δn + const, so *changes* of the residual are −Δθ in

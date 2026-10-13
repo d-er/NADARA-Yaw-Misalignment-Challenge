@@ -36,6 +36,24 @@ $$
   is recovered as `vane = wrap(WindDir − NacDir)`, so `WindDir` carries the
   encoder offset and only the vane is encoder-free.
 
+**Source.** The heading equation is the nacelle-position model of TNO report
+2020 R11206, §3.4 (C. Stock-Williams, D. Wouters, M. Maj, *Investigation into
+automating wind turbine underperformance detection using social statistics*,
+TNO, Petten, 2020,
+[PDF](https://publications.tno.nl/publication/34637217/7RLl98/TNO-2020-R11206.pdf)):
+$\Theta = \theta_{\mathrm{local}} + \delta\Theta_m + \delta\Theta_c + \varepsilon$,
+with $\delta\Theta_c = \delta_n$ and $\delta\Theta_m = -\gamma$ (the report
+counts misalignment as heading minus wind). The same section takes
+$\delta\Theta_c$ as piecewise constant between step changes at maintenance,
+works with heading differences between turbine pairs, and shows that
+miscalibration and misalignment cannot be separated from those differences
+without an independent reference; §2 builds on all three.
+
+The complete algebra as used here (vane equation, a controller that nulls the
+measured vane, a level that is not identifiable and a change that is, slope
+fixed and not fitted) and the consensus residual of §2 are from Participant 50's
+T1_T2_T3 solution in this challenge. §9 lists who did what.
+
 The yaw controller rotates the nacelle until the filtered vane sits at its
 set-point $s$, so in steady state $E[v] = s$ and
 
@@ -80,7 +98,8 @@ How $r$ is built (10-minute aggregates, circular statistics throughout):
 
 1. **Pair series.** For turbine $i$ and each of its 4 nearest same-site
    neighbours $j$: $D_{ij} = \mathrm{wrap}(N_r^i - N_r^j)$, in bins where both
-   turbines operate.
+   turbines operate. PPP_WTG12 and PPP_WTG16 have unstable headings and are
+   excluded as neighbours by hand.
 2. **Encoder frames.** A shift of $i$'s encoder frame moves $D_{ij}$ against
    *all* neighbours by the same amount on the same day. Jumps of at least 25°
    with the same sign in at least 60 % of the pairs within ±3 days are credited
@@ -105,8 +124,9 @@ How $r$ is built (10-minute aggregates, circular statistics throughout):
    on wind direction, so the median of $D_{ij}$ per 30° sector of the
    *neighbour's* wind direction is subtracted. This absorbs the neighbour's own
    offsets into $\kappa$.
-5. **Robust daily value.** Median over the bins of the day per pair, then median
-   over pairs: $r_i(d)$. Day-to-day noise is about 2°.
+5. **Robust daily value.** Median over the bins of the day per pair (a day
+   needs at least 12 bins), then median over pairs: $r_i(d)$. A pair with an
+   unusually noisy residual is left out. Day-to-day noise is about 2°.
 
 ![Neighbour heading residual per pair, their median r, and the state levels](figures/02_residuals.png)
 
@@ -120,7 +140,7 @@ $r$ is smoothed with a centred 7-day rolling median and segmented with PELT
 (squared-error cost, penalty 400, minimum state length 14 days). The penalty
 means a jump $J$ lasting $n$ days on both sides is accepted when
 $nJ^2/2 \gtrsim 400$, e.g. 2.4° over 140 days or 5° over 30 days. Each state
-gets the median of $r$ as its level $\bar r_\ell$.
+gets the median of the smoothed $r$ as its level $\bar r_\ell$.
 
 A boundary with a jump above 15°, or within 10 days of a re-reference verified
 in step 2, is typed as an **encoder** boundary. $r$ is not comparable across
@@ -174,14 +194,51 @@ at most 0.16°.
 ## 6. Use of labels
 
 No parameter of the model is fitted to labels: the slope is −1 from §2 and the
-level is the vane set-point. The training labels were used for two things only.
+level is the vane set-point. The training labels were used for three things.
 
-- **Sign check.** The script refuses to write a file unless the label moves
-  opposite to $r$ on the training turbines (measured slope −1.07), which fixes
-  the sign convention of $\theta$.
+- **Sign checks.** The script refuses to write a file unless the label moves
+  opposite to $r$ on the training turbines (measured slope −1.07) and opposite
+  to the vane at the PPP_WTG13 event of January 2023. Together they fix the
+  sign convention of $\theta$.
 - **Evaluation.** Scored on the three training turbines with the challenge rule,
-  the model reaches RMSE 2.18°, MAE 1.64°, bias +0.20°, ARI 0.36. Segmentation
-  thresholds were set while these turbines, with their labels, were in view.
+  the model reaches RMSE 2.18°, MAE 1.64°, bias +0.20°, ARI 0.36.
+- **One threshold.** The thresholds are fixed constants, set on SCADA. Labels
+  played a role in one of them: the PELT penalty was compared at 400 and 800
+  with the training score, and 400 was kept.
+
+### Sensitivity to the thresholds
+
+Each threshold was varied one at a time around the submitted value (26
+variants, `scripts/sensitivity.py`):
+
+| Threshold (submitted) | Varied over | PPP-17 | SSS-06 |
+|---|---|---|---|
+| PELT penalty (400) | 100 to 1600 | unchanged from 200 to 1600; 5 states at 100 | 3 states from 600 up, 8 to 17 states from 300 down |
+| Minimum state length (14 days) | 7, 28 | unchanged | unchanged |
+| Smoothing (7 days) | 1, 15 | boundary moves by one day | 6 states at 1 day, 4 at 15 days |
+| Encoder attribution (25°) | 15, 20, 35 | unchanged | one boundary moves by two days |
+| Re-reference limit (15°) | 10, 20 | unchanged | unchanged |
+| Excursion length (45 days) | 30, 60 | unchanged | levels move by up to 1.0°, one boundary by a month |
+| Transient limit (10°) | 7, 15 | unchanged | 4 states at 7°, 7 states at 15° |
+| Transient window (91 days) | 61, 121 | levels move by 0.1° | levels move by 0.1° |
+| Neighbours (4) | 3, 5 | unchanged | levels move by up to 0.4° |
+| Sectors (12) | 8, 18 | levels move by 0.3° | levels move by up to 0.8°, one boundary by a month |
+
+- **PPP-17.** 25 of the 26 variants give the same two states, with the boundary
+  on 5 or 6 January 2024 and a step of 7.7° to 8.2°. The remaining one
+  (penalty 100) keeps that boundary and adds three more.
+- **SSS-06, 2023.** The state from mid-June to 25 September 2023 is found in
+  25 of the 26 variants, at −8.4° to −9.1°. Penalty 100 splits it into three
+  parts between the same two dates.
+- **SSS-06, 2024.** These states depend on the thresholds. All three disappear
+  for a penalty of 600 or more, and the 32-day state at −5.0° also disappears
+  with 15-day smoothing or a 7° transient limit.
+- **Training score.** RMSE is 2.02° to 3.17° over the variants (2.18°
+  submitted); three variants score better than the submitted one. Over the
+  penalty it is 2.33° at 200 and 300, 2.18° at 400 and 2.58° from 600 up.
+
+The one choice informed by labels, the penalty, therefore does not affect the
+PPP-17 file. On SSS-06 it decides whether the three states of 2024 appear.
 
 ## 7. Known limits
 
@@ -199,6 +256,9 @@ level is the vane set-point. The training labels were used for two things only.
 - **A short, large state is removed as a transient.** Anything shorter than
   about 45 days that departs by more than 10° and returns is treated as an
   encoder excursion (§2 step 3).
+- **The high-frequency data is not exploited.** The residual is built on
+  10-minute aggregates and would work on standard SCADA; the 12-second stream
+  is only used to form them.
 
 ## 8. Outlook: fleet use and further work
 
@@ -236,11 +296,11 @@ inspection. It is not a replacement for a measurement campaign.
 - **Short states are removed.** Anything shorter than about 45 days that
   departs by more than 10° and returns is deleted, including a real fault of
   that shape (a loose vane fixed after a month).
-- **Hand-set thresholds.** 25°, 15°, 10°, 45 days, 91 days and the PELT
+- **Fixed thresholds.** 25°, 15°, 10°, 45 days, 91 days and the PELT
   penalty were set on five turbines of one type at two sites. The first
   version failed on the test site for this reason: the validate site never
-  exercised the de-stepping. Other controllers, encoders and terrain will
-  break some of them.
+  exercised the de-stepping. §6 shows what the thresholds do here; other
+  controllers, encoders and terrain may need other values.
 - **Sector correction assumes a stationary site.** Sector medians are taken
   over the whole record; seasonal stability, vegetation, new neighbouring
   turbines or a changed curtailment strategy shift heading differences without
@@ -277,7 +337,39 @@ inspection. It is not a replacement for a measurement campaign.
 7. **Online operation.** One-sided windows, detection delay as a function of
    step size, and a false-alarm rate measured on turbines known to be stable.
 
-## 9. Repository layout
+## 9. Credits and own contribution
+
+The idea is Participant 50's; the implementation described in §1 to §4 is ours.
+
+| Element | Source |
+|---|---|
+| Heading model $N_r = N + \delta_n$, pairwise heading differences, calibration error constant between maintenance steps | TNO report 2020 R11206, §3.4 |
+| Full sensor algebra (vane bias, controller nulls the measured vane) | Participant 50 |
+| Level not identifiable from SCADA, change identifiable | Participant 50 (TNO for the heading part) |
+| Residual against a consensus of the neighbours; slope fixed from the algebra, not fitted | Participant 50 |
+| De-stepping the encoders; finding that this matters more than the model | Participant 50 (used in our first version) |
+| PELT change-point algorithm | Killick, Fearnhead and Eckley (2012); `ruptures` library |
+| Residual built pair by pair on the nacelle heading, sector correction, transient filter, robust medians | ours |
+| States from PELT on the residual; encoder-typed boundaries; one anchor per encoder-free segment | ours |
+| Encoder excursions masked instead of de-stepped; only persistent shifts corrected | ours |
+| Vane set-point as level (an assumption, not a solution of the level problem) | ours |
+| Use without labels and without a learned model (T0) | ours |
+| Application to SSS-06 and the analysis of why the first version failed there | ours |
+
+References:
+
+- C. Stock-Williams, D. Wouters, M. Maj, *Investigation into automating wind
+  turbine underperformance detection using social statistics*, TNO report
+  2020 R11206
+  ([PDF](https://publications.tno.nl/publication/34637217/7RLl98/TNO-2020-R11206.pdf)).
+- Participant 50's T1_T2_T3 solution in this challenge.
+- R. Killick, P. Fearnhead, I. A. Eckley, *Optimal detection of changepoints
+  with a linear computational cost*, 2012; the `ruptures` Python library.
+
+Code and text were written with the help of an AI coding assistant and
+reviewed by the author.
+
+## 10. Repository layout
 
 | Path | Content |
 |--------|----------------------|
@@ -288,9 +380,9 @@ inspection. It is not a replacement for a measurement campaign.
 | `submissions/` | the two submitted files |
 | `figures/` | the figures used above |
 | `docs/T0_theory.tex`, `.pdf` | the full derivation with all thresholds |
-| `docs/T0_method_33.pdf` | sections 1–8 of this README as PDF, built by `scripts/build_method_pdf.py` |
+| `docs/T0_method_33.pdf` | sections 1–9 of this README as PDF, built by `scripts/build_method_pdf.py` |
 
-## 10. Reproducing the files
+## 11. Reproducing the files
 
 Put the challenge data (`train.parquet`, `validate.parquet`, `test.parquet`,
 `context.parquet`, `turbine_locations_PPP.csv`, `turbine_locations_SSS.csv`) in
@@ -304,6 +396,7 @@ python -m venv .venv
 .venv/bin/python scripts/build_cache.py                         # step 1: aggregates, daily table, label states (~1 min on 8 cores)
 .venv/bin/python scripts/segment_states.py                      # step 2: frame plan, residual, states (~1 min)
 .venv/bin/python scripts/build_submission.py --participant 33   # step 3: sign checks, train scores, submissions/*.csv
+.venv/bin/python scripts/sensitivity.py                         # optional: the threshold sweep of §6 (~10 min)
 
 .venv/bin/python scripts/plot_01_data.py                        # figures
 .venv/bin/python scripts/plot_02_states.py
